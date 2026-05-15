@@ -46,6 +46,7 @@ def visualize_camera(
     *,
     bboxes: Optional[LiDARInstance3DBoxes] = None,
     labels: Optional[np.ndarray] = None,
+    scores: Optional[np.ndarray] = None,
     transform: Optional[np.ndarray] = None,
     classes: Optional[List[str]] = None,
     color: Optional[Tuple[int, int, int]] = None,
@@ -97,12 +98,35 @@ def visualize_camera(
             ]:
                 cv2.line(
                     canvas,
-                    coords[index, start].astype(np.int),
-                    coords[index, end].astype(np.int),
+                    coords[index, start].astype(int),
+                    coords[index, end].astype(int),
                     color or OBJECT_PALETTE[name],
                     thickness,
                     cv2.LINE_AA,
                 )
+
+################################################################################################################
+            # score text
+            if scores is not None:
+                score = scores[index]
+
+                text = f"{name}: {score:.2f}"
+
+                text_pos = coords[index, 0].astype(int)
+
+                cv2.putText(
+                    canvas,
+                    text,
+                    (text_pos[0], text_pos[1] - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    color or OBJECT_PALETTE[name],
+                    2,
+                    cv2.LINE_AA,
+                )
+################################################################################################################
+
+
         canvas = canvas.astype(np.uint8)
     canvas = cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
 

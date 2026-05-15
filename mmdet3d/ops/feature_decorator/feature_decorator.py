@@ -1,7 +1,10 @@
 
 import torch
 
-from . import feature_decorator_ext
+try:
+    from . import feature_decorator_ext
+except:
+    feature_decorator_ext = None
 
 
 __all__ = ["feature_decorator"]
