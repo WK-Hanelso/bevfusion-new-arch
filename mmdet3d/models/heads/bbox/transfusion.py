@@ -584,7 +584,7 @@ class TransFusionHead(nn.Module):
             heatmap[None],
         )
 
-    @force_fp32(apply_to=("preds_dicts"))
+    @force_fp32(apply_to=("preds_dicts",)) # 쉼표 추가
     def loss(self, gt_bboxes_3d, gt_labels_3d, preds_dicts, **kwargs):
         """Loss function for CenterHead.
         Args:
