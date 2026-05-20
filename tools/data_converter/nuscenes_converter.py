@@ -663,5 +663,5 @@ def generate_record(ann_rec: dict, x1: float, y1: float, x2: float, y2: float,
 
 
 if __name__ == '__main__':
-    create_nuscenes_infos(root_path='data/nuscenes/', info_prefix='nuscenes', version='v1.0-test', max_sweeps=0, max_radar_sweeps=0)
+    create_nuscenes_infos(root_path='data/nuscenes/', info_prefix='nuscenes', version='v1.0-trainval', max_sweeps=10, max_radar_sweeps=0)
     # create_nuscenes_infos('data/nuscenes/', 'radar_nuscenes_5sweeps')
