@@ -20,8 +20,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 # ── 설정 ──────────────────────────────────────────────────────────────────────
-ROOT_DIR   = Path("runs/run-326653dc-6b45f015/test")
-OUTPUT_DIR = Path("runs/run-326653dc-6b45f015/test/merged")
+ROOT_DIR   = Path("runs/run-2c7a30f9-7ef5f73e_3cam_pre_20epo/test")
+OUTPUT_DIR = Path("runs/run-2c7a30f9-7ef5f73e_3cam_pre_20epo/test/merged")
 
 # 카메라 폴더명 → 레이블 매핑
 CAMERA_LABEL_MAP = {
