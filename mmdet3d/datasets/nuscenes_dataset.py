@@ -121,6 +121,14 @@ class NuScenesDataset(Custom3DDataset):
         "traffic_cone",
         "barrier",
     )
+    KEEP_CAMS = [
+        "CAM_FRONT",
+        "CAM_FRONT_LEFT",
+        "CAM_FRONT_RIGHT",
+        "CAM_BACK",
+        "CAM_BACK_LEFT",
+        "CAM_BACK_RIGHT",
+    ]
 
     def __init__(
         self,
@@ -244,7 +252,10 @@ class NuScenesDataset(Custom3DDataset):
             data["camera_intrinsics"] = []
             data["camera2lidar"] = []
 
-            for _, camera_info in info["cams"].items():
+            for cam_name in self.KEEP_CAMS:
+                camera_info = info["cams"][cam_name]
+            # for _, camera_info in info["cams"].items():
+
                 data["image_paths"].append(camera_info["data_path"])
 
                 # lidar to camera transform

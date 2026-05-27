@@ -204,9 +204,9 @@ def _fill_trainval_infos(nusc,
             'CAM_FRONT',
             'CAM_FRONT_RIGHT',
             'CAM_FRONT_LEFT',
-            # 'CAM_BACK',
-            # 'CAM_BACK_LEFT',
-            # 'CAM_BACK_RIGHT',
+            'CAM_BACK',
+            'CAM_BACK_LEFT',
+            'CAM_BACK_RIGHT',
         ]
         for cam in camera_types:
             cam_token = sample['data'][cam]
@@ -394,9 +394,9 @@ def export_2d_annotation(root_path, info_path, version, mono3d=True):
         'CAM_FRONT',
         'CAM_FRONT_RIGHT',
         'CAM_FRONT_LEFT',
-        # 'CAM_BACK',
-        # 'CAM_BACK_LEFT',
-        # 'CAM_BACK_RIGHT',
+        'CAM_BACK',
+        'CAM_BACK_LEFT',
+        'CAM_BACK_RIGHT',
     ]
     nusc_infos = mmcv.load(info_path)['infos']
     nusc = NuScenes(version=version, dataroot=root_path, verbose=True)

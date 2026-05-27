@@ -84,6 +84,9 @@ class DepthLSSTransform(BaseDepthTransform):
     def get_cam_feats(self, x, d, mats_dict=None):
         B, N, C, fH, fW = x.shape
 
+        # print(f'Camera_cnt : {N}')
+        # print(f'x.shape : {x.shape}')
+
         d = d.view(B * N, *d.shape[2:])
         x = x.view(B * N, C, fH, fW)
 
