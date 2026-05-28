@@ -214,10 +214,10 @@ class GlobalRotScaleTrans:
                 data["points"].translate(translation)
                 data["points"].scale(scale)
 
-            if "radar" in data:
-                data["radar"].rotate(-theta)
-                data["radar"].translate(translation)
-                data["radar"].scale(scale)
+            # if "radar" in data:
+            #     data["radar"].rotate(-theta)
+            #     data["radar"].translate(translation)
+            #     data["radar"].scale(scale)
 
             gt_boxes = data["gt_bboxes_3d"]
             rotation = rotation @ gt_boxes.rotate(theta).numpy()
@@ -331,8 +331,8 @@ class RandomFlip3D:
             rotation = np.array([[1, 0, 0], [0, -1, 0], [0, 0, 1]]) @ rotation
             if "points" in data:
                 data["points"].flip("horizontal")
-            if "radar" in data:
-                data["radar"].flip("horizontal")
+            # if "radar" in data:
+            #     data["radar"].flip("horizontal")
             if "gt_bboxes_3d" in data:
                 data["gt_bboxes_3d"].flip("horizontal")
             if "gt_masks_bev" in data:
@@ -342,8 +342,8 @@ class RandomFlip3D:
             rotation = np.array([[-1, 0, 0], [0, 1, 0], [0, 0, 1]]) @ rotation
             if "points" in data:
                 data["points"].flip("vertical")
-            if "radar" in data:
-                data["radar"].flip("vertical")
+            # if "radar" in data:
+            #     data["radar"].flip("vertical")
             if "gt_bboxes_3d" in data:
                 data["gt_bboxes_3d"].flip("vertical")
             if "gt_masks_bev" in data:
@@ -604,12 +604,12 @@ class PointsRangeFilter:
         clean_points = points[points_mask]
         data["points"] = clean_points
 
-        if "radar" in data:
-            radar = data["radar"]
-            # radar_mask = radar.in_range_3d(self.pcd_range)
-            radar_mask = radar.in_range_bev([-55.0, -55.0, 55.0, 55.0])
-            clean_radar = radar[radar_mask]
-            data["radar"] = clean_radar
+        # if "radar" in data:
+        #     radar = data["radar"]
+        #     # radar_mask = radar.in_range_3d(self.pcd_range)
+        #     radar_mask = radar.in_range_bev([-55.0, -55.0, 55.0, 55.0])
+        #     clean_radar = radar[radar_mask]
+        #     data["radar"] = clean_radar
 
         return data
 

@@ -125,9 +125,9 @@ class NuScenesDataset(Custom3DDataset):
         "CAM_FRONT",
         "CAM_FRONT_LEFT",
         "CAM_FRONT_RIGHT",
-        "CAM_BACK",
-        "CAM_BACK_LEFT",
-        "CAM_BACK_RIGHT",
+        # "CAM_BACK",
+        # "CAM_BACK_LEFT",
+        # "CAM_BACK_RIGHT",
     ]
 
     def __init__(
@@ -224,13 +224,19 @@ class NuScenesDataset(Custom3DDataset):
             sweeps=info["sweeps"],
             timestamp=info["timestamp"],
             location=info.get('location', None), 
-            radar=info.get('radars', None), 
+            # radar=info.get('radars', None), 
         )
+
+        # radar 사용 시 적용되도록 수정
+        if self.modality.get("use_radar", False):
+            radar = info.get("radars", None)
+            if radar is not None:
+                data["radar"] = radar
 
         if data['location'] is None:
             data.pop('location')
-        if data['radar'] is None:
-            data.pop('radar')
+        # if data['radar'] is None:
+        #     data.pop('radar')
 
         # ego to global transform
         ego2global = np.eye(4).astype(np.float32)
