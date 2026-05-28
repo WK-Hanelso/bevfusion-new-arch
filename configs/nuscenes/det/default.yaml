@@ -56,7 +56,8 @@ train_pipeline:
     stop_epoch: ${gt_paste_stop_epoch}
     db_sampler:
       dataset_root: ${dataset_root}
-      info_path: ${'/home/shlee/workspace/bevfusion/data/nuscenes/' + "nuscenes_dbinfos_train.pkl"}
+      # info_path: ${'/home/shlee/workspace/bevfusion/data/nuscenes/' + "nuscenes_dbinfos_train.pkl"}
+      info_path: ${dataset_root + "nuscenes_dbinfos_train.pkl"}
       rate: 1.0
       prepare: 
         filter_by_difficulty: [-1]
