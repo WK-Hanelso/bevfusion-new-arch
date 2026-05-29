@@ -24,7 +24,6 @@ class DepthLSSTransform(BaseDepthTransform):
         zbound: Tuple[float, float, float],
         dbound: Tuple[float, float, float],
         downsample: int = 1,
-        add_depth_features: bool = False,
     ) -> None:
         super().__init__(
             in_channels=in_channels,
@@ -35,7 +34,6 @@ class DepthLSSTransform(BaseDepthTransform):
             ybound=ybound,
             zbound=zbound,
             dbound=dbound,
-            add_depth_features=add_depth_features,
         )
         self.dtransform = nn.Sequential(
             nn.Conv2d(1, 8, 1),
@@ -83,9 +81,6 @@ class DepthLSSTransform(BaseDepthTransform):
     @force_fp32()
     def get_cam_feats(self, x, d, mats_dict=None):
         B, N, C, fH, fW = x.shape
-
-        # print(f'Camera_cnt : {N}')
-        # print(f'x.shape : {x.shape}')
 
         d = d.view(B * N, *d.shape[2:])
         x = x.view(B * N, C, fH, fW)
