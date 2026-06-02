@@ -11,6 +11,7 @@ class CustomDetectionEval(DetectionEval):
     The AP/TP metric implementation stays in the official nuScenes devkit.
     This class only partitions already-loaded GT and prediction boxes by
     center point angle in the nuScenes LiDAR sensor coordinate system.
+    For nuScenes LIDAR_TOP, the vehicle front direction is the sensor +Y axis.
     """
 
     VALID_SPACES = ("fusion_space", "lidar_only_space", "bev360")
@@ -21,6 +22,7 @@ class CustomDetectionEval(DetectionEval):
         space: str = "fusion_space",
         fov_degree: Sequence[float] = (-85.0, 85.0),
         lidar_sensor: str = "LIDAR_TOP",
+        fov_front_axis: str = "y",
         match_distance_threshold: float = 2.0,
         **kwargs,
     ) -> None:
@@ -30,10 +32,13 @@ class CustomDetectionEval(DetectionEval):
             )
         if len(fov_degree) != 2:
             raise ValueError("fov_degree must be a [min_degree, max_degree] pair")
+        if fov_front_axis not in ("x", "y"):
+            raise ValueError("fov_front_axis must be 'x' or 'y'")
 
         self.space = space
         self.fov_degree = (float(fov_degree[0]), float(fov_degree[1]))
         self.lidar_sensor = lidar_sensor
+        self.fov_front_axis = fov_front_axis
         self.match_distance_threshold = float(match_distance_threshold)
         self._transform_cache = {}
         self.space_stats = {}
@@ -61,6 +66,7 @@ class CustomDetectionEval(DetectionEval):
             "space": self.space,
             "fov_degree": list(self.fov_degree),
             "lidar_sensor": self.lidar_sensor,
+            "fov_front_axis": self.fov_front_axis,
             "sample_count": len(self.gt_boxes.sample_tokens),
             "gt_before_space_filter": gt_counts["total"],
             "gt_fusion_space": gt_counts["fusion_space"],
@@ -221,9 +227,7 @@ class CustomDetectionEval(DetectionEval):
             "gt_index": gt_index,
             "gt_translation": self._to_float_list(gt_box.translation),
             "gt_translation_lidar": self._to_float_list(gt_lidar),
-            "gt_lidar_angle_degree": float(
-                np.degrees(np.arctan2(gt_lidar[1], gt_lidar[0]))
-            ),
+            "gt_lidar_angle_degree": self._lidar_fov_angle_degree(gt_lidar),
             "match_distance_threshold": self.match_distance_threshold,
         }
         if nearest_pred is not None:
@@ -279,8 +283,18 @@ class CustomDetectionEval(DetectionEval):
         self, sample_token: str, global_translation: Sequence[float]
     ) -> bool:
         lidar_xyz = self._global_to_lidar(sample_token, global_translation)
-        angle_degree = float(np.degrees(np.arctan2(lidar_xyz[1], lidar_xyz[0])))
+        angle_degree = self._lidar_fov_angle_degree(lidar_xyz)
         return self._angle_in_fov(angle_degree)
+
+    def _lidar_fov_angle_degree(self, lidar_xyz: Sequence[float]) -> float:
+        """Return azimuth where 0 deg is the configured LiDAR front axis."""
+        if self.fov_front_axis == "x":
+            angle = np.arctan2(lidar_xyz[1], lidar_xyz[0])
+        else:
+            # nuScenes LIDAR_TOP convention: +Y is vehicle front. Use +X as right,
+            # so positive angle is toward vehicle left.
+            angle = np.arctan2(-lidar_xyz[0], lidar_xyz[1])
+        return float(np.degrees(angle))
 
     def _angle_in_fov(self, angle_degree: float) -> bool:
         fov_min, fov_max = self.fov_degree

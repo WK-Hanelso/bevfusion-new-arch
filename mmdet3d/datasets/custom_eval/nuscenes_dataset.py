@@ -22,6 +22,7 @@ class CustomNuScenesDataset(NuScenesDataset):
         "enabled": True,
         "fov_degree": [-85.0, 85.0],
         "lidar_sensor": "LIDAR_TOP",
+        "fov_front_axis": "y",
         "spaces": [
             "nuscenes_official",
             "fusion_space",
@@ -170,6 +171,7 @@ class CustomNuScenesDataset(NuScenesDataset):
                 space=space,
                 fov_degree=custom_eval["fov_degree"],
                 lidar_sensor=custom_eval["lidar_sensor"],
+                fov_front_axis=custom_eval["fov_front_axis"],
                 match_distance_threshold=custom_eval["match_distance_threshold"],
             )
             summary = self._run_detection_eval(
@@ -213,6 +215,9 @@ class CustomNuScenesDataset(NuScenesDataset):
         if len(cfg["fov_degree"]) != 2:
             raise ValueError("custom_eval.fov_degree must have two values")
         cfg["fov_degree"] = [float(cfg["fov_degree"][0]), float(cfg["fov_degree"][1])]
+        cfg["fov_front_axis"] = str(cfg["fov_front_axis"]).lower()
+        if cfg["fov_front_axis"] not in ("x", "y"):
+            raise ValueError("custom_eval.fov_front_axis must be 'x' or 'y'")
         cfg["match_distance_threshold"] = float(cfg["match_distance_threshold"])
         cfg["missed_gt_max_records"] = int(cfg["missed_gt_max_records"])
         return cfg
@@ -359,6 +364,7 @@ class CustomNuScenesDataset(NuScenesDataset):
         mmcv.dump(
             {
                 "space": evaluator.space,
+                "fov_front_axis": evaluator.fov_front_axis,
                 "match_distance_threshold": evaluator.match_distance_threshold,
                 "missed_gt_count": evaluator.match_stats["missed_gt"],
                 "saved_missed_gt_count": len(records),
@@ -441,10 +447,11 @@ class CustomNuScenesDataset(NuScenesDataset):
 
         lines = [
             "Custom nuScenes eval results "
-            "(LiDAR FOV: [{:.1f}, {:.1f}] deg, sensor: {})".format(
+            "(LiDAR FOV: [{:.1f}, {:.1f}] deg, sensor: {}, front_axis: +{})".format(
                 custom_eval["fov_degree"][0],
                 custom_eval["fov_degree"][1],
                 custom_eval["lidar_sensor"],
+                custom_eval["fov_front_axis"].upper(),
             )
         ]
 
