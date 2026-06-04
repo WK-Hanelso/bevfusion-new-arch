@@ -214,10 +214,10 @@ class GlobalRotScaleTrans:
                 data["points"].translate(translation)
                 data["points"].scale(scale)
 
-            if "radar" in data:
-                data["radar"].rotate(-theta)
-                data["radar"].translate(translation)
-                data["radar"].scale(scale)
+            # if "radar" in data:
+            #     data["radar"].rotate(-theta)
+            #     data["radar"].translate(translation)
+            #     data["radar"].scale(scale)
 
             gt_boxes = data["gt_bboxes_3d"]
             rotation = rotation @ gt_boxes.rotate(theta).numpy()
@@ -331,8 +331,8 @@ class RandomFlip3D:
             rotation = np.array([[1, 0, 0], [0, -1, 0], [0, 0, 1]]) @ rotation
             if "points" in data:
                 data["points"].flip("horizontal")
-            if "radar" in data:
-                data["radar"].flip("horizontal")
+            # if "radar" in data:
+            #     data["radar"].flip("horizontal")
             if "gt_bboxes_3d" in data:
                 data["gt_bboxes_3d"].flip("horizontal")
             if "gt_masks_bev" in data:
@@ -342,8 +342,8 @@ class RandomFlip3D:
             rotation = np.array([[-1, 0, 0], [0, 1, 0], [0, 0, 1]]) @ rotation
             if "points" in data:
                 data["points"].flip("vertical")
-            if "radar" in data:
-                data["radar"].flip("vertical")
+            # if "radar" in data:
+            #     data["radar"].flip("vertical")
             if "gt_bboxes_3d" in data:
                 data["gt_bboxes_3d"].flip("vertical")
             if "gt_masks_bev" in data:
@@ -565,7 +565,7 @@ class ObjectRangeFilter:
         # using mask to index gt_labels_3d will cause bug when
         # len(gt_labels_3d) == 1, where mask=1 will be interpreted
         # as gt_labels_3d[1] and cause out of index error
-        gt_labels_3d = gt_labels_3d[mask.numpy().astype(np.bool)]
+        gt_labels_3d = gt_labels_3d[mask.numpy().astype(np.bool_)]
 
         # limit rad to [-pi, pi]
         gt_bboxes_3d.limit_yaw(offset=0.5, period=2 * np.pi)
@@ -604,12 +604,12 @@ class PointsRangeFilter:
         clean_points = points[points_mask]
         data["points"] = clean_points
 
-        if "radar" in data:
-            radar = data["radar"]
-            # radar_mask = radar.in_range_3d(self.pcd_range)
-            radar_mask = radar.in_range_bev([-55.0, -55.0, 55.0, 55.0])
-            clean_radar = radar[radar_mask]
-            data["radar"] = clean_radar
+        # if "radar" in data:
+        #     radar = data["radar"]
+        #     # radar_mask = radar.in_range_3d(self.pcd_range)
+        #     radar_mask = radar.in_range_bev([-55.0, -55.0, 55.0, 55.0])
+        #     clean_radar = radar[radar_mask]
+        #     data["radar"] = clean_radar
 
         return data
 

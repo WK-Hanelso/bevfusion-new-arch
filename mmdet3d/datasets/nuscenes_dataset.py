@@ -121,6 +121,14 @@ class NuScenesDataset(Custom3DDataset):
         "traffic_cone",
         "barrier",
     )
+    KEEP_CAMS = [
+        "CAM_FRONT",
+        "CAM_FRONT_LEFT",
+        "CAM_FRONT_RIGHT",
+        # "CAM_BACK",
+        # "CAM_BACK_LEFT",
+        # "CAM_BACK_RIGHT",
+    ]
 
     def __init__(
         self,
@@ -216,13 +224,19 @@ class NuScenesDataset(Custom3DDataset):
             sweeps=info["sweeps"],
             timestamp=info["timestamp"],
             location=info.get('location', None), 
-            radar=info.get('radars', None), 
+            # radar=info.get('radars', None), 
         )
+
+        # radar 사용 시 적용되도록 수정
+        if self.modality.get("use_radar", False):
+            radar = info.get("radars", None)
+            if radar is not None:
+                data["radar"] = radar
 
         if data['location'] is None:
             data.pop('location')
-        if data['radar'] is None:
-            data.pop('radar')
+        # if data['radar'] is None:
+        #     data.pop('radar')
 
         # ego to global transform
         ego2global = np.eye(4).astype(np.float32)
@@ -244,7 +258,10 @@ class NuScenesDataset(Custom3DDataset):
             data["camera_intrinsics"] = []
             data["camera2lidar"] = []
 
-            for _, camera_info in info["cams"].items():
+            for cam_name in self.KEEP_CAMS:
+                camera_info = info["cams"][cam_name]
+            # for _, camera_info in info["cams"].items():
+
                 data["image_paths"].append(camera_info["data_path"])
 
                 # lidar to camera transform

@@ -85,19 +85,19 @@ def create_nuscenes_infos(root_path,
         print('test sample: {}'.format(len(train_nusc_infos)))
         data = dict(infos=train_nusc_infos, metadata=metadata)
         info_path = osp.join(root_path,
-                             '{}_infos_test_radar.pkl'.format(info_prefix))
+                             '{}_infos_test.pkl'.format(info_prefix))
         mmcv.dump(data, info_path)
     else:
         print(info_prefix)
         print('train sample: {}, val sample: {}'.format(
             len(train_nusc_infos), len(val_nusc_infos)))
         data = dict(infos=train_nusc_infos, metadata=metadata)
-        info_path = osp.join(info_prefix,
-                             '{}_infos_train_radar.pkl'.format(info_prefix))
+        info_path = osp.join(root_path,
+                             '{}_infos_train.pkl'.format(info_prefix))
         mmcv.dump(data, info_path)
         data['infos'] = val_nusc_infos
-        info_val_path = osp.join(info_prefix,
-                                 '{}_infos_val_radar.pkl'.format(info_prefix))
+        info_val_path = osp.join(root_path,
+                                 '{}_infos_val.pkl'.format(info_prefix))
         mmcv.dump(data, info_val_path)
 
 
@@ -183,7 +183,7 @@ def _fill_trainval_infos(nusc,
             'token': sample['token'],
             'sweeps': [],
             'cams': dict(),
-            'radars': dict(), 
+            # 'radars': dict(), 
             'lidar2ego_translation': cs_record['translation'],
             'lidar2ego_rotation': cs_record['rotation'],
             'ego2global_translation': pose_record['translation'],
@@ -216,30 +216,31 @@ def _fill_trainval_infos(nusc,
             cam_info.update(cam_intrinsic=cam_intrinsic)
             info['cams'].update({cam: cam_info})
 
-        radar_names = ['RADAR_FRONT', 'RADAR_FRONT_LEFT', 'RADAR_FRONT_RIGHT',  'RADAR_BACK_LEFT', 'RADAR_BACK_RIGHT']
+        # radar_names = ['RADAR_FRONT', 'RADAR_FRONT_LEFT', 'RADAR_FRONT_RIGHT',  'RADAR_BACK_LEFT', 'RADAR_BACK_RIGHT']
 
-        for radar_name in radar_names:
-            radar_token = sample['data'][radar_name]
-            radar_rec = nusc.get('sample_data', radar_token)
-            sweeps = []
+        # for radar_name in radar_names:
+        #     radar_token = sample['data'][radar_name]
+        #     radar_rec = nusc.get('sample_data', radar_token)
+        #     sweeps = []
 
-            while len(sweeps) < max_radar_sweeps:
-                if not radar_rec['prev'] == '':
-                    radar_path, _, radar_intrin = nusc.get_sample_data(radar_token)
+        #     while len(sweeps) < max_radar_sweeps:
+        #         if not radar_rec['prev'] == '':
+        #             radar_path, _, radar_intrin = nusc.get_sample_data(radar_token)
 
-                    radar_info = obtain_sensor2top(nusc, radar_token, l2e_t, l2e_r_mat,
-                                                e2g_t, e2g_r_mat, radar_name)
-                    sweeps.append(radar_info)
-                    radar_token = radar_rec['prev']
-                    radar_rec = nusc.get('sample_data', radar_token)
-                else:
-                    radar_path, _, radar_intrin = nusc.get_sample_data(radar_token)
+        #             radar_info = obtain_sensor2top(nusc, radar_token, l2e_t, l2e_r_mat,
+        #                                         e2g_t, e2g_r_mat, radar_name)
+        #             sweeps.append(radar_info)
+        #             radar_token = radar_rec['prev']
+        #             radar_rec = nusc.get('sample_data', radar_token)
+        #         else:
+        #             radar_path, _, radar_intrin = nusc.get_sample_data(radar_token)
 
-                    radar_info = obtain_sensor2top(nusc, radar_token, l2e_t, l2e_r_mat,
-                                                e2g_t, e2g_r_mat, radar_name)
-                    sweeps.append(radar_info)
+        #             radar_info = obtain_sensor2top(nusc, radar_token, l2e_t, l2e_r_mat,
+        #                                         e2g_t, e2g_r_mat, radar_name)
+        #             sweeps.append(radar_info)
             
-            info['radars'].update({radar_name: sweeps})
+        #     info['radars'].update({radar_name: sweeps})
+
         # obtain sweeps for a single key-frame
         sd_rec = nusc.get('sample_data', sample['data']['LIDAR_TOP'])
         sweeps = []
@@ -289,8 +290,8 @@ def _fill_trainval_infos(nusc,
             info['gt_velocity'] = velocity.reshape(-1, 2)
             info['num_lidar_pts'] = np.array(
                 [a['num_lidar_pts'] for a in annotations])
-            info['num_radar_pts'] = np.array(
-                [a['num_radar_pts'] for a in annotations])
+            # info['num_radar_pts'] = np.array(
+            #     [a['num_radar_pts'] for a in annotations])
             info['valid_flag'] = valid_flag
 
         if sample['scene_token'] in train_scenes:
@@ -632,7 +633,7 @@ def generate_record(ann_rec: dict, x1: float, y1: float, x2: float, y2: float,
         'instance_token',
         'next',
         'num_lidar_pts',
-        'num_radar_pts',
+        # 'num_radar_pts',
         'prev',
         'sample_annotation_token',
         'sample_data_token',
@@ -662,4 +663,5 @@ def generate_record(ann_rec: dict, x1: float, y1: float, x2: float, y2: float,
 
 
 if __name__ == '__main__':
-    create_nuscenes_infos('data/nuscenes/', 'radar_nuscenes_5sweeps')
+    create_nuscenes_infos(root_path='data/nuscenes/', info_prefix='nuscenes', version='v1.0-trainval', max_sweeps=10, max_radar_sweeps=0)
+    # create_nuscenes_infos('data/nuscenes/', 'radar_nuscenes_5sweeps')

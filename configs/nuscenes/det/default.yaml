@@ -1,13 +1,13 @@
-radar_sweeps: 6
-radar_max_points: 2500
-radar_use_dims: [0, 1, 2, 5, 8, 9, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56]
-radar_compensate_velocity: true 
-radar_filtering: none
+# radar_sweeps: 6
+# radar_max_points: 2500
+# radar_use_dims: [0, 1, 2, 5, 8, 9, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56]
+# radar_compensate_velocity: true 
+# radar_filtering: none
 
-radar_voxel_size: [0.8, 0.8, 8]
+# radar_voxel_size: [0.8, 0.8, 8]
 image_size: [256, 704]
-radar_jitter: 0
-radar_normalize: false
+# radar_jitter: 0
+# radar_normalize: false
 
 model:
   type: BEVFusion
@@ -37,15 +37,15 @@ train_pipeline:
     pad_empty_sweeps: true
     remove_close: true
     load_augmented: ${load_augmented}
-  -
-    type: LoadRadarPointsMultiSweeps
-    load_dim: 18
-    sweeps_num: ${radar_sweeps}
-    use_dim: ${radar_use_dims}
-    max_num: ${radar_max_points}
-    compensate_velocity: ${radar_compensate_velocity}
-    filtering: ${radar_filtering}
-    normalize: ${radar_normalize}
+  # -
+  #   type: LoadRadarPointsMultiSweeps
+  #   load_dim: 18
+  #   sweeps_num: ${radar_sweeps}
+  #   use_dim: ${radar_use_dims}
+  #   max_num: ${radar_max_points}
+  #   compensate_velocity: ${radar_compensate_velocity}
+  #   filtering: ${radar_filtering}
+  #   normalize: ${radar_normalize}
   -
     type: LoadAnnotations3D
     with_bbox_3d: true
@@ -56,7 +56,8 @@ train_pipeline:
     stop_epoch: ${gt_paste_stop_epoch}
     db_sampler:
       dataset_root: ${dataset_root}
-      info_path: ${'data/nuscenes/' + "nuscenes_dbinfos_train.pkl"}
+      # info_path: ${'/home/shlee/workspace/bevfusion/data/nuscenes/' + "nuscenes_dbinfos_train.pkl"}
+      info_path: ${dataset_root + "nuscenes_dbinfos_train.pkl"}
       rate: 1.0
       prepare: 
         filter_by_difficulty: [-1]
@@ -139,7 +140,7 @@ train_pipeline:
     keys:
       - img
       - points
-      - radar
+      # - radar
       - gt_bboxes_3d
       - gt_labels_3d
     meta_keys:
@@ -175,15 +176,15 @@ test_pipeline:
     pad_empty_sweeps: true
     remove_close: true
     load_augmented: ${load_augmented}
-  -
-    type: LoadRadarPointsMultiSweeps
-    load_dim: 18
-    sweeps_num: ${radar_sweeps}
-    use_dim: ${radar_use_dims}
-    max_num: ${radar_max_points}
-    compensate_velocity: ${radar_compensate_velocity}
-    filtering: ${radar_filtering}
-    normalize: ${radar_normalize}
+  # -
+  #   type: LoadRadarPointsMultiSweeps
+  #   load_dim: 18
+  #   sweeps_num: ${radar_sweeps}
+  #   use_dim: ${radar_use_dims}
+  #   max_num: ${radar_max_points}
+  #   compensate_velocity: ${radar_compensate_velocity}
+  #   filtering: ${radar_filtering}
+  #   normalize: ${radar_normalize}
   -
     type: LoadAnnotations3D
     with_bbox_3d: true
@@ -218,7 +219,7 @@ test_pipeline:
     keys:
       - img
       - points
-      - radar
+      # - radar
       - gt_bboxes_3d
       - gt_labels_3d
       #- gt_masks_bev

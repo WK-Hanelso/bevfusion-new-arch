@@ -246,14 +246,15 @@ class TransFusionHead(nn.Module):
         local_max[:, :, padding:(-padding), padding:(-padding)] = local_max_inner
         ## for Pedestrian & Traffic_cone in nuScenes
         if self.test_cfg["dataset"] == "nuScenes":
-            local_max[
-                :,
-                8,
-            ] = F.max_pool2d(heatmap[:, 8], kernel_size=1, stride=1, padding=0)
-            local_max[
-                :,
-                9,
-            ] = F.max_pool2d(heatmap[:, 9], kernel_size=1, stride=1, padding=0)
+            if heatmap.shape[1] > 8:
+                local_max[
+                    :,
+                    8,
+                ] = F.max_pool2d(heatmap[:, 8], kernel_size=1, stride=1, padding=0)
+                local_max[
+                    :,
+                    9,
+                ] = F.max_pool2d(heatmap[:, 9], kernel_size=1, stride=1, padding=0)
         elif self.test_cfg["dataset"] == "Waymo":  # for Pedestrian & Cyclist in Waymo
             local_max[
                 :,
@@ -584,7 +585,7 @@ class TransFusionHead(nn.Module):
             heatmap[None],
         )
 
-    @force_fp32(apply_to=("preds_dicts"))
+    @force_fp32(apply_to=("preds_dicts",)) # 쉼표 추가
     def loss(self, gt_bboxes_3d, gt_labels_3d, preds_dicts, **kwargs):
         """Loss function for CenterHead.
         Args:

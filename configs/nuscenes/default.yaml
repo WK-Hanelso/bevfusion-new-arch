@@ -1,4 +1,5 @@
 dataset_type: NuScenesDataset
+# dataset_root: /home/shlee/workspace/bevfusion/data/nuscenes/
 dataset_root: data/nuscenes/
 gt_paste_stop_epoch: -1
 reduce_beams: 32
@@ -303,4 +304,7 @@ data:
 evaluation:
   interval: 1
   pipeline: ${test_pipeline}
+  save_best: object/nds
+  rule: greater
+
  
