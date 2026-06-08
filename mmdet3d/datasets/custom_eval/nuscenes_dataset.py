@@ -18,6 +18,8 @@ from .detection_eval import CustomDetectionEval
 class CustomNuScenesDataset(NuScenesDataset):
     """NuScenesDataset variant that reports official and FOV-split metrics."""
 
+    STATIC_OBJECT_CLASSES = {"barrier", "traffic_cone"}
+
     DEFAULT_CUSTOM_EVAL = {
         "enabled": True,
         "fov_degree": [-85.0, 85.0],
@@ -39,6 +41,8 @@ class CustomNuScenesDataset(NuScenesDataset):
         "dump_missed_gt": True,
         "missed_gt_filename": "missed_gt.json",
         "missed_gt_max_records": -1,
+        "log_file": None,
+        "log_filename": "custom_eval.log",
     }
 
     def evaluate(
@@ -126,9 +130,12 @@ class CustomNuScenesDataset(NuScenesDataset):
         details = {}
         space_stats = {}
         match_stats = {}
+        progress_lines = []
         spaces = custom_eval["spaces"]
         if "nuscenes_official" in spaces:
-            print_log("[custom_eval] START nuscenes_official", logger=logger)
+            self._log_custom_eval(
+                "[custom_eval] START nuscenes_official", logger, progress_lines
+            )
             start_time = time.time()
             official_summary = self._run_detection_eval(
                 DetectionEval(
@@ -141,11 +148,12 @@ class CustomNuScenesDataset(NuScenesDataset):
                 ),
                 custom_eval,
             )
-            print_log(
+            self._log_custom_eval(
                 "[custom_eval] DONE nuscenes_official ({:.1f}s)".format(
                     time.time() - start_time
                 ),
-                logger=logger,
+                logger,
+                progress_lines,
             )
             summaries["nuscenes_official"] = official_summary
             if custom_eval["keep_legacy_nuscenes_keys"]:
@@ -159,7 +167,9 @@ class CustomNuScenesDataset(NuScenesDataset):
             if space == "nuscenes_official":
                 continue
             space_output_dir = osp.join(custom_root, space)
-            print_log("[custom_eval] START {}".format(space), logger=logger)
+            self._log_custom_eval(
+                "[custom_eval] START {}".format(space), logger, progress_lines
+            )
             start_time = time.time()
             evaluator = CustomDetectionEval(
                 nusc,
@@ -181,7 +191,7 @@ class CustomNuScenesDataset(NuScenesDataset):
             space_stats[space] = evaluator.space_stats
             match_stats[space] = evaluator.match_stats
             missed_gt_path = self._dump_missed_gt(evaluator, space_output_dir, custom_eval)
-            print_log(
+            self._log_custom_eval(
                 "[custom_eval] DONE {} ({:.1f}s) | {} | {}{}".format(
                     space,
                     time.time() - start_time,
@@ -191,14 +201,18 @@ class CustomNuScenesDataset(NuScenesDataset):
                     if missed_gt_path is not None
                     else "",
                 ),
-                logger=logger,
+                logger,
+                progress_lines,
             )
             summaries[space] = summary
             details.update(self._metrics_to_detail(summary, prefix=space))
             details.update(self._match_stats_to_detail(evaluator.match_stats, prefix=space))
 
-        self._print_custom_eval_summary(
+        summary_text = self._print_custom_eval_summary(
             summaries, custom_eval, logger, space_stats, match_stats
+        )
+        self._write_custom_eval_log(
+            output_dir, custom_eval, progress_lines, summary_text, logger
         )
         return details
 
@@ -220,7 +234,14 @@ class CustomNuScenesDataset(NuScenesDataset):
             raise ValueError("custom_eval.fov_front_axis must be 'x' or 'y'")
         cfg["match_distance_threshold"] = float(cfg["match_distance_threshold"])
         cfg["missed_gt_max_records"] = int(cfg["missed_gt_max_records"])
+        if cfg["log_file"] is not None:
+            cfg["log_file"] = str(cfg["log_file"])
+        cfg["log_filename"] = str(cfg["log_filename"])
         return cfg
+
+    def _log_custom_eval(self, message, logger, progress_lines):
+        progress_lines.append(message)
+        print_log(message, logger=logger)
 
     def _run_detection_eval(self, evaluator, custom_eval):
         if custom_eval["suppress_eval_stdout"]:
@@ -439,11 +460,49 @@ class CustomNuScenesDataset(NuScenesDataset):
                 )
             )
 
-    def _print_custom_eval_summary(
+        self._append_classwise_missed_gt_summary(lines, match_stats)
+
+    def _object_motion_type(self, class_name):
+        if class_name in self.STATIC_OBJECT_CLASSES:
+            return "static"
+        return "dynamic"
+
+    def _append_classwise_missed_gt_summary(self, lines, match_stats):
+        lines.append("")
+        lines.append("Class-wise missed GT:")
+        lines.append(
+            "{:<18}\t{:<24}\t{:<10}\t{:<12}\t{:<10}".format(
+                "Eval Space",
+                "Object Class",
+                "Type",
+                "Missed/GT",
+                "Missed %",
+            )
+        )
+        for space_name, stats in match_stats.items():
+            per_class = stats.get("per_class", {})
+            for class_name in self.CLASSES:
+                class_stats = per_class.get(class_name)
+                if class_stats is None or class_stats["gt_total"] == 0:
+                    continue
+                missed = class_stats["missed_gt"]
+                gt_total = class_stats["gt_total"]
+                missed_rate = 100.0 * missed / gt_total
+                lines.append(
+                    "{:<18}\t{:<24}\t{:<10}\t{:<12}\t{:<10}".format(
+                        space_name,
+                        class_name,
+                        self._object_motion_type(class_name),
+                        "{}/{}".format(missed, gt_total),
+                        "{:.2f}".format(missed_rate),
+                    )
+                )
+
+    def _format_custom_eval_summary(
         self, summaries, custom_eval, logger, space_stats=None, match_stats=None
-    ) -> None:
+    ):
         if not summaries:
-            return
+            return None
 
         lines = [
             "Custom nuScenes eval results "
@@ -461,4 +520,38 @@ class CustomNuScenesDataset(NuScenesDataset):
         for name, metrics in summaries.items():
             self._append_official_style_result(lines, name, metrics)
 
-        print_log("\n".join(lines), logger=logger)
+        return "\n".join(lines)
+
+    def _print_custom_eval_summary(
+        self, summaries, custom_eval, logger, space_stats=None, match_stats=None
+    ):
+        summary_text = self._format_custom_eval_summary(
+            summaries, custom_eval, logger, space_stats, match_stats
+        )
+        if summary_text is not None:
+            print_log(summary_text, logger=logger)
+        return summary_text
+
+    def _write_custom_eval_log(
+        self, output_dir, custom_eval, progress_lines, summary_text, logger
+    ):
+        if summary_text is None:
+            return None
+
+        if custom_eval["log_file"] is not None:
+            log_path = custom_eval["log_file"]
+        else:
+            log_path = osp.join(
+                output_dir,
+                custom_eval["output_dir_name"],
+                custom_eval["log_filename"],
+            )
+
+        log_dir = osp.dirname(log_path)
+        if log_dir:
+            mmcv.mkdir_or_exist(log_dir)
+        log_text = "\n".join(progress_lines + ["", summary_text, ""])
+        with open(log_path, "w", encoding="utf-8") as f:
+            f.write(log_text)
+        print_log("[custom_eval] LOG saved to {}".format(log_path), logger=logger)
+        return log_path

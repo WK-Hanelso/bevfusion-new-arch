@@ -15,6 +15,7 @@ class CustomDetectionEval(DetectionEval):
     """
 
     VALID_SPACES = ("fusion_space", "lidar_only_space", "bev360")
+    STATIC_OBJECT_CLASSES = {"barrier", "traffic_cone"}
 
     def __init__(
         self,
@@ -224,6 +225,7 @@ class CustomDetectionEval(DetectionEval):
             "space": self.space,
             "sample_token": sample_token,
             "detection_name": class_name,
+            "object_motion_type": self._object_motion_type(class_name),
             "gt_index": gt_index,
             "gt_translation": self._to_float_list(gt_box.translation),
             "gt_translation_lidar": self._to_float_list(gt_lidar),
@@ -247,6 +249,11 @@ class CustomDetectionEval(DetectionEval):
             record["nearest_pred_score"] = None
             record["nearest_pred_translation"] = None
         return record
+
+    def _object_motion_type(self, class_name: str) -> str:
+        if class_name in self.STATIC_OBJECT_CLASSES:
+            return "static"
+        return "dynamic"
 
     def _find_nearest_prediction(self, gt_box, pred_boxes) -> Tuple[Optional[object], Optional[float]]:
         nearest_pred = None
