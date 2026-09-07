@@ -121,14 +121,14 @@ class NuScenesDataset(Custom3DDataset):
         "traffic_cone",
         "barrier",
     )
-    KEEP_CAMS = [
+    AVAILABLE_CAMERAS = (
         "CAM_FRONT",
         "CAM_FRONT_RIGHT",
         "CAM_FRONT_LEFT",
-        # "CAM_BACK",
-        # "CAM_BACK_LEFT",
-        # "CAM_BACK_RIGHT",
-    ]
+        "CAM_BACK",
+        "CAM_BACK_LEFT",
+        "CAM_BACK_RIGHT",
+    )
 
     def __init__(
         self,
@@ -145,9 +145,17 @@ class NuScenesDataset(Custom3DDataset):
         test_mode=False,
         eval_version="detection_cvpr_2019",
         use_valid_flag=False,
+        camera_names=None,
     ) -> None:
         self.load_interval = load_interval
         self.use_valid_flag = use_valid_flag
+        self.camera_names = tuple(camera_names or self.AVAILABLE_CAMERAS)
+        unknown_cameras = set(self.camera_names) - set(self.AVAILABLE_CAMERAS)
+        if unknown_cameras:
+            raise ValueError(
+                f"Unsupported nuScenes cameras: {sorted(unknown_cameras)}. "
+                f"Available cameras: {list(self.AVAILABLE_CAMERAS)}"
+            )
         super().__init__(
             dataset_root=dataset_root,
             ann_file=ann_file,
@@ -258,9 +266,8 @@ class NuScenesDataset(Custom3DDataset):
             data["camera_intrinsics"] = []
             data["camera2lidar"] = []
 
-            for cam_name in self.KEEP_CAMS:
+            for cam_name in self.camera_names:
                 camera_info = info["cams"][cam_name]
-            # for _, camera_info in info["cams"].items():
 
                 data["image_paths"].append(camera_info["data_path"])
 
@@ -276,7 +283,15 @@ class NuScenesDataset(Custom3DDataset):
 
                 # camera intrinsics
                 camera_intrinsics = np.eye(4).astype(np.float32)
-                camera_intrinsics[:3, :3] = camera_info["cam_intrinsic"]
+                intrinsic = camera_info.get(
+                    "camera_intrinsics", camera_info.get("cam_intrinsic")
+                )
+                if intrinsic is None:
+                    raise KeyError(
+                        f"Camera {cam_name} has neither 'camera_intrinsics' "
+                        "nor 'cam_intrinsic'"
+                    )
+                camera_intrinsics[:3, :3] = intrinsic
                 data["camera_intrinsics"].append(camera_intrinsics)
 
                 # lidar to image transform
