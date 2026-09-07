@@ -11,6 +11,13 @@ point_cloud_range: [-51.2, -51.2, -5.0, 51.2, 51.2, 3.0]
 voxel_size: [0.1, 0.1, 0.2]
 image_size: [256, 704]
 
+# Preserve the team's current three-camera behavior by default. Experiments
+# that require the original nuScenes six-camera layout override this list.
+camera_names:
+  - CAM_FRONT
+  - CAM_FRONT_RIGHT
+  - CAM_FRONT_LEFT
+
 augment2d:
   resize: [[0.38, 0.55], [0.48, 0.48]]
   rotate: [-5.4, 5.4]
@@ -277,6 +284,7 @@ data:
       object_classes: ${object_classes}
       map_classes: ${map_classes}
       modality: ${input_modality}
+      camera_names: ${camera_names}
       test_mode: false
       use_valid_flag: true
       box_type_3d: LiDAR
@@ -288,6 +296,7 @@ data:
     object_classes: ${object_classes}
     map_classes: ${map_classes}
     modality: ${input_modality}
+    camera_names: ${camera_names}
     test_mode: false
     box_type_3d: LiDAR
   test:
@@ -298,6 +307,7 @@ data:
     object_classes: ${object_classes}
     map_classes: ${map_classes}
     modality: ${input_modality}
+    camera_names: ${camera_names}
     test_mode: true
     box_type_3d: LiDAR
 
