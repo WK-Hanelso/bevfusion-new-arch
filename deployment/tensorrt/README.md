@@ -8,14 +8,16 @@
 
 ```mermaid
 flowchart LR
-    IMG["images + geometry"] --> A["Engine A<br/>camera_bev.engine"]
+    IMG["images + geometry"] --> A["Engine A<br/>camera_bev_fp16.engine"]
     PTS["merged points [N,5]"] --> VFE["CUDA plugins<br/>pillarize + PFN + topology"]
     VFE --> DSVT["DSVT backbone + scatter + neck"]
-    DSVT --> B["Engine B<br/>dsvt_lidar.engine"]
-    A --> C["Engine C<br/>fusion_dal.engine"]
+    DSVT --> B["Engine B<br/>dsvt_lidar_fp16.engine"]
+    A --> C["Engine C<br/>fusion_dal_fp16.engine"]
     B --> C
     C --> OUT["boxes + scores + labels"]
 ```
+
+모식도의 파일명은 아래 `--precision fp16` 빌드 기준이다. `fp32`를 선택하면 세 파일의 접미사도 `_fp32.engine`으로 바뀐다.
 
 | engine | 입력 | 출력 |
 |---|---|---|
@@ -56,6 +58,42 @@ Engine B ABI: points -> lidar_bev + lidar_status
 
 ## Thor Docker prerequisite
 
+`depthfusion:thor-trt-v3`는 기존 Thor 실측에서 사용한 **로컬 이미지 태그**다. 공개 registry의 다운로드 주소가 아니며 `docker pull`만으로 확보할 수 있다고 가정하지 않는다. 이 저장소의 `docker/Dockerfile`은 x86_64 학습용으로, 이 Thor 이미지를 재구성하지 않는다.
+
+### 이미지 확인·전달
+
+이미지를 보유한 Thor host에서 먼저 확인한다.
+
+```bash
+docker image inspect depthfusion:thor-trt-v3 \
+  --format 'id={{.Id}} os={{.Os}} arch={{.Architecture}}'
+```
+
+Image ID와 `linux/arm64`를 확인·기록한다. 이미지를 다른 Thor에 전달해야 한다면, 보유 host의 repository root에서 다음 파일을 만든다. 이미지 archive는 클 수 있으므로 생성·전달·load 전에 양쪽 디스크 여유 공간을 확인한다.
+
+```bash
+mkdir -p deployment/artifacts/image-transfer
+docker image save --output deployment/artifacts/image-transfer/depthfusion-thor-trt-v3.tar \
+  depthfusion:thor-trt-v3
+cd deployment/artifacts/image-transfer
+sha256sum depthfusion-thor-trt-v3.tar > depthfusion-thor-trt-v3.tar.sha256
+```
+
+두 파일을 팀에서 승인한 전달 경로로 대상 Thor에 옮긴다. 대상 host에서 두 파일이 있는 디렉터리로 이동한 후 검사하고 로드한다. 같은 태그의 다른 이미지가 있으면 ID를 기록하고 보존 여부를 결정한 뒤 진행한다.
+
+```bash
+sha256sum -c depthfusion-thor-trt-v3.tar.sha256 && \
+  docker image load --input depthfusion-thor-trt-v3.tar
+docker image inspect depthfusion:thor-trt-v3 \
+  --format 'id={{.Id}} os={{.Os}} arch={{.Architecture}}'
+```
+
+송신·수신 image ID가 같은지 확인한다. 이 절차는 이미지 전달 방법이며 이번 문서 갱신에서 실제 save/load를 수행한 것은 아니다. Archive에는 host에 mount했던 repository·ONNX·engine·dataset이 포함되지 않는다. 별도 source/artifact 전달과 대상 Thor의 NVIDIA driver/Container Runtime 준비가 필요하다.
+
+**이미지 또는 archive를 확보할 수 없다면:** 현재 저장소에는 Thor image용 Dockerfile, base image digest, 전체 package lock이 없으므로 동일 환경의 재구성은 아직 제공하지 않는다. 이미지 관리자로부터 검증 이미지나 원본 Dockerfile·설치 기록을 확보해야 한다. CUDA 13/TensorRT 10.13.2.6이라는 버전 정보만으로 임의 이미지를 동일 검증 환경이라고 간주하지 않는다.
+
+### 컨테이너 실행과 환경 확인
+
 Thor host의 repository와 export artifact를 container에 같은 mount로 제공한다.
 
 ```bash
@@ -81,7 +119,7 @@ PTH는 학습 서버에서만 사용한다. Thor에는 `deployment/artifacts/onn
 
 ## 1. 학습 서버: PTH에서 배포 artifact 생성
 
-현재 config와 일치하는 checkpoint를 사용한다. Capacity는 engine artifact의 일부이므로 명시적으로 지정한다.
+현재 config와 일치하는 checkpoint를 사용한다. Capacity는 engine artifact의 일부이므로 명시적으로 지정한다. 아래 예시는 host venv 기준이다. 학습 Docker에서는 [export 환경·checkpoint 경로](../README.md#학습-서버에서-export)를 따라 `/workspace/bevfusion`에서 실행하고 `source`를 생략한다.
 
 ```bash
 cd /home/culee/workspace/bevfusion

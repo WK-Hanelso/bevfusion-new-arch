@@ -95,7 +95,7 @@ python -m torch.distributed.run --nproc_per_node=1 tools/train_torchrun.py \
 
 멀티 GPU는 `--nproc_per_node`를 컨테이너에 노출된 GPU 수에 맞춘다. `train_torchrun.py`는 동일한 `tools/train.py`를 실행한다. OpenMPI를 사용하는 기존 `torchpack dist-run -np N python tools/train.py <config> --run-dir <dir>`도 가능하나, 위 명령은 root MPI 실행 옵션을 요구하지 않는 torchrun 경로를 기준으로 한다.
 
-신규 PTH export는 같은 이미지에서 [deployment/README.md](../deployment/README.md)의 `export_all.py` 명령을 사용한다. TensorRT engine 생성은 해당 ONNX artifact를 Thor로 전달한 후 수행한다.
+신규 PTH export는 같은 이미지에서 [export 환경·checkpoint 경로](../deployment/README.md#학습-서버에서-export)의 `export_all.py` 명령을 사용한다. 컨테이너의 repository root는 `/workspace/bevfusion`이며 host venv의 `cd`/`source` 명령을 사용하지 않는다. 기본 mount의 학습 checkpoint는 `/workspace/bevfusion/runs/`에서 보이고, 외부 PTH는 위 문서의 read-only checkpoint mount를 추가해야 한다. TensorRT engine 생성은 해당 ONNX artifact를 Thor로 전달한 후 수행한다. Thor 이미지 확보·전달 방법과 재구성 한계는 [TensorRT 환경 문서](../deployment/tensorrt/README.md#thor-docker-prerequisite)를 따른다.
 
 ## 소스 변경과 검증 상태
 
