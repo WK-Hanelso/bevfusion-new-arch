@@ -1,6 +1,6 @@
 # DynamicBEVFusion deployment
 
-[저장소](../README.md) · [모델/학습](../new-arch.md) · [TensorRT 빌드](tensorrt/README.md) · [C++ 실행](runtime/README.md)
+[저장소](../README.md) · [모델 아키텍처](../new-arch.md) · [학습·checkpoint 전달](../tools/README.md) · [TensorRT 빌드](tensorrt/README.md) · [C++ 실행](runtime/README.md)
 
 이 디렉터리는 현재 `DynamicBEVFusion` checkpoint를 ONNX artifact로 내보내고, Jetson AGX Thor에서 TensorRT engine 세 개를 빌드한 뒤 C++로 inference하기 위한 코드다. 기본 model config는 `configs/nuscenes/det/transfusion/secfpn/lidar/dsvt_dgf_dal_widthformer_0p3.yaml`이다.
 
