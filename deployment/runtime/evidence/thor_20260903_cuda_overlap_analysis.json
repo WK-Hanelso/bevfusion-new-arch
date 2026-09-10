@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-03",
+  "device": "NVIDIA Thor",
+  "device_sm_count": 20,
+  "container_image": "depthfusion:thor-trt-v3",
+  "tools": {
+    "cuda": "13.0",
+    "tensorrt": "10.13.2",
+    "nsight_systems": "2025.4.1"
+  },
+  "input_points": 34688,
+  "single_thread_submit_gpu_timeline_ms": {
+    "camera_start": 0.0124,
+    "camera_end": 5.2687,
+    "lidar_start": 4.5973,
+    "lidar_end": 18.1445,
+    "fusion_start": 18.1484,
+    "fusion_end": 26.7933,
+    "camera_lidar_overlap": 0.618
+  },
+  "parallel_submit_gpu_timeline_ms": {
+    "camera_start": 0.138,
+    "camera_end": 10.343,
+    "lidar_start": 0.1612,
+    "lidar_end": 17.9176,
+    "fusion_start": 17.9202,
+    "fusion_end": 26.626,
+    "branch_start_delta": 0.0232
+  },
+  "parallel_submit_nsight_stream_spans_ms": {
+    "camera": 10.304768,
+    "lidar": 18.044352,
+    "camera_lidar_overlap": 10.304768
+  },
+  "parallel_submit_100_iteration_ms": {
+    "camera_p50": 4.9916,
+    "lidar_p50": 12.597,
+    "fusion_p50": 8.7866,
+    "sequential_p50": 26.3831,
+    "concurrent_p50": 26.4405,
+    "concurrent_p99": 27.3075,
+    "median_speedup": 0.9978
+  },
+  "camera_max_aux_streams_zero_comparison_ms": {
+    "camera_p50": 4.9483,
+    "lidar_p50": 12.6006,
+    "fusion_p50": 8.7851,
+    "sequential_p50": 26.4387,
+    "concurrent_p50": 26.5566,
+    "median_speedup": 0.9956
+  },
+  "conclusion": "Parallel host submission produces genuine interleaved A/B CUDA execution, but shared SM compute pressure stretches both branches and removes critical-path speedup. TensorRT auxiliary streams are not the root cause.",
+  "timing_scope": "GPU model and GPU DAL decode; excludes input preprocessing and result D2H",
+  "diagnostic": "random-init engines and synthetic input; no detection accuracy claim"
+}
