@@ -1,6 +1,6 @@
 # BEVFusion 신규 아키텍처
 
-[저장소 시작 페이지](README.md) · [배포 계약](deployment/README.md) · [C++ 실행/기존 실측](deployment/runtime/README.md)
+[저장소 시작 페이지](README.md) · [학습·재개·평가](tools/README.md) · [배포 계약](deployment/README.md) · [C++ 실행/기존 실측](deployment/runtime/README.md)
 
 ## 1. 목적과 선택 방법
 
@@ -107,44 +107,11 @@ flowchart LR
 
 ## 5. 환경과 실행
 
-준비된 학습 서버 venv는 Python 3.8 / PyTorch 1.10.1+cu113 / MMCV-full 1.4.0 / MMDetection 2.20.0 / Torchpack 0.3.1 / nuScenes-devkit 1.1.11 / ONNX 1.14.1이다. 이를 기준으로 `docker/Dockerfile`과 고정 requirements에 x86_64 학습 환경을 정리했다. 이미지 빌드 중 Python 개발 header와 CUDA compiler를 설치하고 기존 extension 12개를 컴파일한다. OpenCV/YAPF/protobuf 호환 버전, mount와 컨테이너 학습 명령은 [docker/README.md](docker/README.md)를 따른다. 이 Dockerfile은 Thor runtime용이 아니며 실제 image build/컨테이너 학습 검증은 아직 수행하지 않았다.
+환경 설치·image build·mount는 [docker/README.md](docker/README.md), 데이터 준비·config별 실행·smoke·전체 학습·재개·평가는 [tools/README.md](tools/README.md)를 따른다. 이 문서는 아키텍처와 모델 입출력의 기준이며 학습 명령·환경 버전을 중복 관리하지 않는다.
 
-```bash
-cd /home/culee/workspace/bevfusion
-source /home/culee/2608_bevfusion/bin/activate
+## 6. 학습 검증 범위
 
-# 현재 import 대상 확인
-python -c "import mmdet3d; print(mmdet3d.__file__)"
-
-# 신규 아키텍처 실제 1-step smoke
-python tools/smoke_train.py \
-  configs/nuscenes/det/transfusion/secfpn/lidar/dsvt_dgf_dal_widthformer_0p3.yaml \
-  --dataroot /home/culee/nuscenes_mini --device 0
-
-# 전체 학습: 기존 train.py를 현재 torchrun 환경에서 호출
-python -m torch.distributed.run --nproc_per_node=1 tools/train_torchrun.py \
-  configs/nuscenes/det/transfusion/secfpn/lidar/dsvt_dgf_dal_widthformer_0p3.yaml \
-  --run-dir runs/new-arch
-```
-
-전체 학습의 기본 dataset root는 `data/nuscenes/`다. 로컬 mini directory를 이 위치에 제공하거나 config의 `dataset_root`를 설정한다. `samples/`, `sweeps/`, `nuscenes_infos_train.pkl`, `nuscenes_infos_val.pkl`을 준비한다. 기존 config의 `ObjectPaste` 사용 시 `nuscenes_dbinfos_train.pkl`과 GT database도 필요하다. 신규 config는 ObjectPaste를 사용하지 않는다. 기존 파일/링크가 있을 때 덮어쓰지 않는다.
-
-OpenMPI/mpi4py가 준비된 기존 환경에서는 `torchpack dist-run -np 1 python tools/train.py <config> --run-dir <directory>`도 유지한다. config를 변경하면 기존 3/6-camera 모델도 같은 학습 진입점을 사용한다.
-
-mini map-expansion 파일이 없는 환경에서 기존 detection config만 smoke할 때는 `tools/smoke_train.py ... --object-only`를 사용한다. 이는 detection 입력과 loss를 유지하고 map segmentation label loader만 제외한다.
-
-## 6. 2026-09-07 검증 결과
-
-- PASS: Python 문법 검사.
-- PASS: venv의 `mmdet3d`가 `/home/culee/workspace/bevfusion/mmdet3d`를 가리킴.
-- PASS: 기존 CUDA extension 12개 빌드 및 신규 registry 5종 등록.
-- PASS: 3-camera BEVFusion, 6-camera BEVFusion, 6-camera DynamicBEVFusion config 모두 recursive resolve.
-- PASS: 신규 DynamicBEVFusion의 실제 nuScenes-mini 1-step 학습.
-  - 입력: 6 views, 32,250 points, 15 boxes
-  - 모델 파라미터: 44,521,340
-  - 실행: forward, backward, optimizer step
-  - gradient parameter 수: camera 190, LiDAR 194, fusion 54, head 42
-  - peak CUDA allocated: 4.612 GiB
+기존 3/6-camera와 신규 모델의 config resolve 및 신규 모델의 과거 nuScenes-mini 1-step 학습 기록은 [학습 가이드의 검증 범위](tools/README.md#8-검증-범위와-제한)로 이전했다. 실제 입력·gradient·메모리 수치와 전체 학습·재개·평가의 미검증 범위를 그곳에서 함께 관리한다.
 
 ## 7. 참고 구현
 

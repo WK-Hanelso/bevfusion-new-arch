@@ -1,6 +1,6 @@
 # 학습용 Docker 환경
 
-[저장소](../README.md) · [모델/config/학습](../new-arch.md) · [ONNX export](../deployment/README.md)
+[저장소](../README.md) · [모델 아키텍처](../new-arch.md) · [학습·재개·평가](../tools/README.md) · [ONNX export](../deployment/README.md)
 
 `docker/Dockerfile`은 기존 BEVFusion 3/6-camera와 신규 DynamicBEVFusion을 **같은 x86_64 GPU 학습 이미지**에서 실행한다. config와 `tools/train.py` 구조를 그대로 사용하며 ONNX export 의존성도 포함한다. Thor TensorRT 실행 환경은 [별도 배포 문서](../deployment/tensorrt/README.md)를 따른다.
 
@@ -65,35 +65,15 @@ docker run --rm -it --gpus all --shm-size=16g \
 
 `runs/`에 checkpoint/log가, `deployment/artifacts/`에 export 결과가 남는다. Cache는 Torch pretrained weights, Matplotlib, Numba용이다. 원본 데이터와 info PKL은 미리 준비해 read-only로 제공한다. 실제 실행 계정에 host의 결과/cache 디렉터리 쓰기 권한이 있어야 한다.
 
-기본 dataset root는 `data/nuscenes/`다. `samples/`, `sweeps/`, `nuscenes_infos_train.pkl`, `nuscenes_infos_val.pkl`이 필요하며 기존 ObjectPaste config는 GT database도 필요하다. Raw mini 다운로드만으로 모든 PKL이 자동 생성되지는 않는다. 데이터 전처리는 이미지 빌드와 별개다.
+기본 dataset root는 `data/nuscenes/`다. 데이터 구성·PKL/GT database 준비·mini/full 구분은 [학습 가이드](../tools/README.md#2-nuscenes-mini--full-데이터-준비)를 따른다. 전처리는 이미지 빌드와 별개이며 데이터 생성 단계에만 쓰기 가능한 mount를 사용한다.
 
-## 3. 컨테이너 안에서 검사와 학습
+## 3. 컨테이너 환경 검사
 
 ```bash
-# 버전·extension·config 및 작은 CUDA kernel 검사
 python docker/check_environment.py --strict --cuda
-
-# 신규 모델 실제 mini 1-step
-python tools/smoke_train.py \
-  configs/nuscenes/det/transfusion/secfpn/lidar/dsvt_dgf_dal_widthformer_0p3.yaml \
-  --dataroot data/nuscenes --device 0
-
-# 신규 모델 전체 학습
-python -m torch.distributed.run --nproc_per_node=1 tools/train_torchrun.py \
-  configs/nuscenes/det/transfusion/secfpn/lidar/dsvt_dgf_dal_widthformer_0p3.yaml \
-  --run-dir runs/new-arch
 ```
 
-기존 모델은 마지막 명령의 config만 다음 중 하나로 바꾸고 서로 다른 `--run-dir`를 지정한다.
-
-| 선택 | config |
-|---|---|
-| 기존 전방 3-camera | `configs/nuscenes/det/transfusion/secfpn/camera+lidar/resnet50/convfuser.yaml` |
-| 기존 6-camera | `configs/nuscenes/det/transfusion/secfpn/camera+lidar/resnet50/convfuser_6cam.yaml` |
-
-기존 detection smoke에서 map-expansion 파일이 없으면 `smoke_train.py ... --object-only`를 사용할 수 있다. 이 옵션은 map label loader만 제외하므로 ObjectPaste의 GT database 요구까지 제거하지는 않는다.
-
-멀티 GPU는 `--nproc_per_node`를 컨테이너에 노출된 GPU 수에 맞춘다. `train_torchrun.py`는 동일한 `tools/train.py`를 실행한다. OpenMPI를 사용하는 기존 `torchpack dist-run -np N python tools/train.py <config> --run-dir <dir>`도 가능하나, 위 명령은 root MPI 실행 옵션을 요구하지 않는 torchrun 경로를 기준으로 한다.
+버전·extension·세 config와 작은 CUDA scatter/voxelization 연산을 검사한다. Dataset 학습이나 정확도 검사가 아니다. 검사 후 [학습·재개·평가 가이드](../tools/README.md)로 진행한다. 모델별 학습 명령과 MPI 평가의 전제조건은 그 문서에서만 관리한다.
 
 신규 PTH export는 같은 이미지에서 [export 환경·checkpoint 경로](../deployment/README.md#학습-서버에서-export)의 `export_all.py` 명령을 사용한다. 컨테이너의 repository root는 `/workspace/bevfusion`이며 host venv의 `cd`/`source` 명령을 사용하지 않는다. 기본 mount의 학습 checkpoint는 `/workspace/bevfusion/runs/`에서 보이고, 외부 PTH는 위 문서의 read-only checkpoint mount를 추가해야 한다. TensorRT engine 생성은 해당 ONNX artifact를 Thor로 전달한 후 수행한다. Thor 이미지 확보·전달 방법과 재구성 한계는 [TensorRT 환경 문서](../deployment/tensorrt/README.md#thor-docker-prerequisite)를 따른다.
 

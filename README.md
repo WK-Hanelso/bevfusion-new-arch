@@ -35,37 +35,18 @@ data/, runs/, build/     로컬 데이터·학습 결과·빌드 결과, Git 제
 
 | 문서 | 단일 책임 |
 |---|---|
-| [new-arch.md](new-arch.md) | 모델 선택, 아키텍처 그림, PyTorch 파일·입출력, 학습 방법 |
-| [docker/README.md](docker/README.md) | 학습 이미지 빌드, 패키지 버전, 데이터/결과 mount, 컨테이너 학습 |
+| [new-arch.md](new-arch.md) | 모델 선택, 아키텍처 그림, PyTorch 파일·입출력 |
+| [docker/README.md](docker/README.md) | 학습 이미지 빌드, 패키지 버전, 데이터/결과 mount, 환경 검사 |
+| [tools/README.md](tools/README.md) | 데이터 준비, smoke, 단일·멀티 GPU 학습, 재개·평가, checkpoint 전달 |
 | [deployment/README.md](deployment/README.md) | PTH export, 생성 파일과 engine I/O 계약 |
 | [deployment/tensorrt/README.md](deployment/tensorrt/README.md) | Thor Docker, plugin CMake, engine build 및 capacity |
 | [deployment/runtime/README.md](deployment/runtime/README.md) | C++ 실행, latency·memory 옵션, 이전 실측 근거 |
 
-## Docker 학습 환경
+## 환경 → 학습 → 배포
 
-기존 BEVFusion과 신규 모델은 같은 학습 이미지를 사용한다. Repository root에서 빌드한다.
-
-```bash
-docker build --platform linux/amd64 -f docker/Dockerfile \
-  --build-arg MAX_JOBS=4 -t bevfusion-train:cu113 .
-```
-
-이미지는 CUDA 11.3/Python 3.8/PyTorch 1.10.1의 x86_64 학습 환경이며 기존 CUDA ops 12개를 빌드한다. 실행·데이터 mount·환경 검사는 [docker/README.md](docker/README.md)를 따른다. 현재 작성본의 Docker image build는 아직 실행하지 않았으며 Thor TensorRT 이미지는 별도다.
-
-## 기존 환경에서 시작
-
-학습 서버의 준비된 venv는 `/home/culee/2608_bevfusion`, mini 데이터는 `/home/culee/nuscenes_mini`다. 다른 환경에서는 경로를 자신의 위치로 바꾼다.
-
-```bash
-cd /home/culee/workspace/bevfusion
-source /home/culee/2608_bevfusion/bin/activate
-
-python tools/smoke_train.py \
-  configs/nuscenes/det/transfusion/secfpn/lidar/dsvt_dgf_dal_widthformer_0p3.yaml \
-  --dataroot /home/culee/nuscenes_mini --device 0
-```
-
-`smoke_train.py`는 실제 1 batch의 forward/backward/optimizer step을 검사한다. 이전 신규 모델 mini smoke는 통과했다. 전체 학습 명령과 기존 config의 데이터 준비 조건은 [new-arch.md](new-arch.md#5-환경과-실행)를 따른다.
+1. [Docker 환경](docker/README.md)에서 이미지 빌드·데이터/cache mount·환경 검사를 수행한다. 현재 Docker image build/컨테이너 학습은 미검증이며 Thor 이미지는 별도다.
+2. [학습 가이드](tools/README.md)에서 host venv 또는 컨테이너 경로를 선택하고 데이터 준비 → smoke → 전체 학습 → 재개·평가를 진행한다.
+3. 선택한 checkpoint와 config를 [ONNX export](deployment/README.md)에 전달한다. 명령은 각 담당 문서에서 관리한다.
 
 GPU 없는 bundle 계약 테스트:
 
