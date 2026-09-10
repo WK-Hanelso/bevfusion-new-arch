@@ -1,0 +1,28 @@
+# Training, nuScenes evaluation and deployment/onnx exports.
+# Do not install mmcv alongside mmcv-full.
+numpy==1.22.4
+numba==0.48.0
+llvmlite==0.31.0
+scipy==1.7.3
+Pillow==8.4.0
+opencv-python==4.8.1.78
+matplotlib==3.5.3
+scikit-learn==1.0.2
+Shapely==1.8.5.post1
+pycocotools==2.0.7
+nuscenes-devkit==1.1.11
+mmdet==2.20.0
+torchpack==0.3.1
+tensorpack==0.11
+tensorboard==2.14.0
+multimethod==1.10
+h5py==3.11.0
+PyYAML==6.0.3
+onnx==1.14.1
+# Preserve MMCV FormatCode(verify=...) and legacy protobuf compatibility.
+yapf==0.32.0
+protobuf==3.20.3
+mpi4py==3.1.6
+typing_extensions==4.13.2
+ninja==1.11.1.1
+psutil==7.2.2
