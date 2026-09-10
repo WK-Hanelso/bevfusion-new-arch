@@ -4,6 +4,7 @@ import torch
 import torch.nn.functional as F
 from mmcv.cnn import ConvModule
 
+from mmdet3d.core import draw_heatmap_gaussian, gaussian_radius
 from mmdet3d.models.builder import HEADS
 
 from .transfusion import TransFusionHead
@@ -42,6 +43,58 @@ class DALDecoupledHead(TransFusionHead):
             indexing="ij",
         )
         return torch.stack((x + 0.5, y + 0.5), dim=-1).reshape(1, -1, 2)
+
+    def _dense_heatmap_target(self, gt_bboxes_3d, gt_labels_3d, device):
+        """Draw the gaussian targets for a ``[Y, X]`` dense heatmap.
+
+        ``draw_heatmap_gaussian`` reads ``center[0]`` as the column and
+        ``center[1]`` as the row, so a ``[Y, X]`` map takes ``(coor_x, coor_y)``.
+        """
+        boxes = torch.cat(
+            [gt_bboxes_3d.gravity_center, gt_bboxes_3d.tensor[:, 3:]], dim=1
+        ).to(device)
+        grid_size = torch.tensor(self.train_cfg["grid_size"])
+        pc_range = torch.tensor(self.train_cfg["point_cloud_range"])
+        voxel_size = torch.tensor(self.train_cfg["voxel_size"])
+        out_size_factor = self.train_cfg["out_size_factor"]
+        feature_map_size = grid_size[:2] // out_size_factor  # [x_len, y_len]
+        heatmap = boxes.new_zeros(
+            self.num_classes, feature_map_size[1], feature_map_size[0]
+        )
+        for idx in range(len(boxes)):
+            width = boxes[idx][3] / voxel_size[0] / out_size_factor
+            length = boxes[idx][4] / voxel_size[1] / out_size_factor
+            if width <= 0 or length <= 0:
+                continue
+            radius = gaussian_radius(
+                (length, width), min_overlap=self.train_cfg["gaussian_overlap"]
+            )
+            radius = max(self.train_cfg["min_radius"], int(radius))
+            coor_x = (boxes[idx][0] - pc_range[0]) / voxel_size[0] / out_size_factor
+            coor_y = (boxes[idx][1] - pc_range[1]) / voxel_size[1] / out_size_factor
+            center = torch.tensor(
+                [coor_x, coor_y], dtype=torch.float32, device=device
+            ).to(torch.int32)
+            draw_heatmap_gaussian(heatmap[gt_labels_3d[idx]], center, radius)
+        return heatmap
+
+    def get_targets_single(self, gt_bboxes_3d, gt_labels_3d, preds_dict, batch_idx):
+        """Rebuild the dense heatmap target in this head's ``[Y, X]`` layout.
+
+        ``TransFusionHead`` places each gaussian at ``row=coor_x, col=coor_y``
+        because its own ``create_2D_grid`` flattens an ``[X, Y]`` feature map.
+        This head, and the ``DynamicBEVFusion`` ``[B, C, Y, X]`` BEV contract it
+        consumes, use the opposite order, so the inherited target is transposed
+        against the prediction. Every other target is layout independent and is
+        taken from the parent unchanged.
+        """
+        outputs = super().get_targets_single(
+            gt_bboxes_3d, gt_labels_3d, preds_dict, batch_idx
+        )
+        heatmap = self._dense_heatmap_target(
+            gt_bboxes_3d, gt_labels_3d, outputs[0].device
+        )
+        return (*outputs[:7], heatmap[None])
 
     def _select_proposals(self, dense_heatmap):
         batch_size = dense_heatmap.shape[0]
