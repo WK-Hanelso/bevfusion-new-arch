@@ -133,6 +133,14 @@ models/*
 data/*
 runs/*
 
+# Deployment binaries and profiler captures belong in deployment/artifacts/.
+deployment/**/*.engine
+deployment/**/*.onnx
+deployment/**/*.pth
+deployment/**/*.npz
+deployment/**/*.nsys-rep
+deployment/**/*.ncu-rep
+
 # torch hipify generated files
 *_hip.*
 *.hip

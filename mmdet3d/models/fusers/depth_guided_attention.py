@@ -165,7 +165,9 @@ class DepthGuidedDeformableAttention2D(nn.Module):
         similarity = similarity + self.position_bias(
             query_grid, sampled_grid, batch
         )
-        similarity = similarity - similarity.amax(dim=-1, keepdim=True).detach()
+        similarity = similarity - similarity.max(
+            dim=-1, keepdim=True
+        ).values.detach()
         attention = self.dropout(similarity.softmax(dim=-1))
         output = torch.matmul(attention, value)
         output = output.permute(0, 1, 3, 2).reshape(

@@ -93,7 +93,7 @@ class _HorizontalRefiner(nn.Module):
         h_pe = self.vertical_pe(_position_embedding(h_coord * 10.0, channels)).to(dtype)
         w_pe = self.horizontal_pe(_position_embedding(w_coord * 10.0, channels)).to(dtype)
 
-        token = image.amax(dim=2).transpose(1, 2)
+        token = image.max(dim=2).values.transpose(1, 2)
         column = image.permute(0, 3, 2, 1).reshape(batch * width, height, channels)
         query = self.cross_q_norm(token).reshape(batch * width, 1, channels)
         key = self.cross_k_norm(column + h_pe.view(1, height, channels))
