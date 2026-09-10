@@ -53,12 +53,33 @@ Engine B 내부의 raw-point frontend는 ONNX로 표현하지 않는다. 대신 
 
 ## 학습 서버에서 export
 
-학습 Docker 이미지에서도 동일한 명령을 실행할 수 있다. [docker/README.md](../docker/README.md)의 image build/mount 절차를 사용하면 ONNX 의존성이 설치되며 export 결과는 host의 `deployment/artifacts/`에 보존된다. 아래 `source ...`는 기존 host venv를 사용할 때만 필요하다.
+먼저 실행 환경에 맞는 작업 경로를 선택한다. Host의 경로를 컨테이너 안에서 그대로 사용하지 않는다.
+
+**기존 host venv:**
 
 ```bash
 cd /home/culee/workspace/bevfusion
 source /home/culee/2608_bevfusion/bin/activate
+```
 
+**학습 Docker 컨테이너:** [docker/README.md](../docker/README.md)의 image build/mount 절차로 들어온 뒤 실행한다. Python 환경은 이미 활성화되어 있으므로 `source`가 필요 없다.
+
+```bash
+cd /workspace/bevfusion
+```
+
+Checkpoint 경로는 **명령을 실행하는 환경에서 보이는 경로**를 사용한다.
+
+| Checkpoint 위치 | 컨테이너에서 지정할 경로 |
+|---|---|
+| Host repository의 `runs/new-arch/epoch_20.pth` | 기본 `runs/` mount를 통해 `/workspace/bevfusion/runs/new-arch/epoch_20.pth` |
+| Host의 별도 checkpoint 디렉터리 | 컨테이너 시작 시 `--mount type=bind,src=/absolute/host/checkpoints,dst=/checkpoints,readonly`를 `docker run` 옵션에 추가하고 `/checkpoints/model.pth` 사용 |
+
+위 파일명은 경로 예시이며 해당 checkpoint가 저장소에 포함되어 있다는 뜻은 아니다. 별도 mount의 host 디렉터리는 먼저 존재해야 한다. 실제 파일을 아래 `--checkpoint`에 지정한다. 기본 mount에서는 export 결과가 host의 `deployment/artifacts/`에 남는다.
+
+**선택한 환경에서 공통 export 명령:**
+
+```bash
 python deployment/onnx/export_all.py \
   --checkpoint /absolute/path/model.pth \
   --output-dir deployment/artifacts/onnx \
