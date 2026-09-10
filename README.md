@@ -2,8 +2,8 @@
 
 팀의 기존 BEVFusion과 신규 DynamicBEVFusion을 같은 `configs/`, `mmdet3d/`, `tools/` 구조에서 선택해 학습하는 저장소다. 신규 모델은 WidthFormer camera branch, DSVT LiDAR branch, DepthGFusion과 DAL head로 구성된다.
 
-- 저장소: [model-team/bevfusion](https://adtc.swm.ai/gitlab/model-team/bevfusion), 작업 branch: `new-arch`
-- 팀 공유: [모델·빌드·실행 가이드](https://www.notion.so/3d0f51a0d215813a9f69fc27653475e0)
+- 저장소: `model-team/bevfusion`, 작업 branch: `new-arch`
+- 팀 공유 문서: [BEVFusion new-arch](https://swmai.atlassian.net/wiki/spaces/AITC1/pages/459538453/BEVFusion+new-arch)
 - 기존 Thor 실측을 inference 실행 구조의 검증 근거로 사용한다. 이번 정리는 재실측을 요구하지 않는다.
 
 ## 모델 선택
