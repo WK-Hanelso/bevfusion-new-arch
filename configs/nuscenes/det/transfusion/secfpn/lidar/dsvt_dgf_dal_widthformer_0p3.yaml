@@ -154,7 +154,9 @@ model:
         type: ResNet
         depth: 34
         out_indices: [1, 2, 3]
-        init_cfg: null
+        init_cfg:
+          type: Pretrained
+          checkpoint: https://download.pytorch.org/models/resnet34-b627a593.pth
       neck:
         type: LSSFPN
         in_indices: [2, 1]
