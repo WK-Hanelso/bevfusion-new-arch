@@ -1,0 +1,15 @@
+data:
+  test:
+    type: CustomNuScenesDataset
+
+evaluation:
+  custom_eval:
+    enabled: true
+    fov_degree: [-85.0, 85.0]
+    lidar_sensor: LIDAR_TOP
+    spaces:
+      - nuscenes_official
+      - fusion_space
+      - lidar_only_space
+      - bev360
+    #log_file: /home/shlee/workspace/bevfusion/eval_outputs/custom_eval3.log
