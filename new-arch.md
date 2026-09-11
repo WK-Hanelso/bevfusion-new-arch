@@ -111,7 +111,9 @@ flowchart LR
 
 ## 6. 학습 검증 범위
 
-기존 3/6-camera와 신규 모델의 config resolve 및 신규 모델의 과거 nuScenes-mini 1-step 학습 기록은 [학습 가이드의 검증 범위](tools/README.md#8-검증-범위와-제한)로 이전했다. 실제 입력·gradient·메모리 수치와 전체 학습·재개·평가의 미검증 범위를 그곳에서 함께 관리한다.
+기존 3/6-camera와 신규 모델의 config resolve, 신규 모델의 nuScenes-mini 1-step 학습 기록, 그리고 2026-09-10 완료한 nuScenes full 학습 결과(최고 epoch 19 mAP 0.5281 / NDS 0.5132)는 [학습 가이드의 검증 범위](tools/README.md#8-검증-범위와-제한)에서 관리한다. 실제 입력·gradient·메모리 수치와 재개·평가의 미검증 범위도 그곳에 있다.
+
+Full 학습 중 확인한 결함 한 가지는 신규 head에 영향을 준다. `DALDecoupledHead`는 BEV를 `[B,C,Y,X]`로 두고 `create_2D_grid`를 y-major로 재정의했지만, 상속받은 `TransFusionHead.get_targets_single`은 legacy `[X,Y]` 순서로 heatmap 타깃을 찍는다. 타깃만 전치된 결과 mAP가 0에 고정됐다. 수정은 `mmdet3d/models/heads/bbox/dal_decoupled.py`에서 `get_targets_single`을 재정의해 heatmap만 `[Y,X]`로 재생성하는 방식이며, legacy `transfusion.py`와 기존 BEVFusion 경로는 변경하지 않았다(commit `000230e`).
 
 ## 7. 참고 구현
 

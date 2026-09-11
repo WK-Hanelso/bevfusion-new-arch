@@ -58,8 +58,9 @@ python -m unittest discover -s deployment/runtime/tests -v
 
 ## 현재 범위
 
-- **검증 근거:** 신규 모델 nuScenes-mini 1-step 학습, 실제 PTH의 ONNX export, 이전 Thor의 FP16 A/B/C 실행·CUDA stream overlap·latency·통합 메모리 기록, 현재 bundle launcher CPU 테스트 18개.
+- **검증 근거:** 신규 모델 nuScenes full 학습·평가(아래), 실제 PTH의 ONNX export, 이전 Thor의 FP16 A/B/C 실행·CUDA stream overlap·latency·통합 메모리 기록, 현재 bundle launcher CPU 테스트 18개.
+- **신규 모델 학습 결과 (2026-09-10):** nuScenes v1.0-trainval, 8×A6000, FP32, single-sweep, GT-Aug 미사용, 20 epoch. 최고 epoch 19 **mAP 0.5281 / NDS 0.5132**, 최종 epoch 20 mAP 0.5258 / NDS 0.5129. mAVE 1.132로 NDS 속도 항 0(단일 sweep의 구조적 결과). 재현 조건과 발견한 결함은 [학습 가이드의 검증 범위](tools/README.md#8-검증-범위와-제한) 참조.
 - **이전 Thor 대표값:** 34,688 synthetic points에서 병렬 P50 26.4405 ms / P99 27.3075 ms(100회). 모델 연산 및 GPU DAL decode 기준이며 입력 전처리·H2D·출력 D2H는 제외한다. [원본 근거](deployment/runtime/evidence/thor_20260903_cuda_overlap_analysis.json).
-- **별도 확정 사항:** 실제 5-LiDAR 통합 입력 분포, camera 구성, point feature 의미, pillar/set capacity, 실센서 입출력 연동, 학습 모델 정확도, 100만 point 설정의 성능·메모리. 100만 point는 고정값이 아니며 profile·capacity로 선택한다.
+- **별도 확정 사항:** 실제 5-LiDAR 통합 입력 분포, camera 구성, point feature 의미, pillar/set capacity, 실센서 입출력 연동, 학습 weight의 TensorRT 수치 일치·정확도·latency, 100만 point 설정의 성능·메모리. 100만 point는 고정값이 아니며 profile·capacity로 선택한다.
 
 기존 실측은 random-init engine과 synthetic 입력의 구조 진단이다. 현재 학습 weight와 제품 센서 조합의 정확도·35 ms 성능을 측정했다는 뜻은 아니다. 기존 실행 근거와 현재 패키징 상태를 같은 문서에서 관리하며 버전별 문서를 추가하지 않는다.
