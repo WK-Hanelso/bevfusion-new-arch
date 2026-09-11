@@ -207,4 +207,20 @@ ONNX exporter에는 같은 모델 구조를 복원할 수 있는 config를 지�
 
 이번 문서 정리에서는 세 config의 기본값과 train override resolve, 평가 DictAction의 null 파싱, smoke/test CLI help 및 명령의 코드 경로를 CPU에서 확인했다. 데이터 재생성·GPU 학습·resume·평가를 새로 실행하지 않았다. 기존 smoke 기록은 이후 변경된 학습 로직까지 검증한 결과가 아니다.
 
-현재 **기존 모델의 전체 학습, 신규 full 학습 정확도, 멀티 GPU, resume 및 위 MPI 평가 명령의 end-to-end 완료를 확인한 상태는 아니다**. Docker image build/컨테이너 학습 역시 미실행이며 환경 검사 범위는 [Docker 문서](../docker/README.md#소스-변경과-검증-상태)를 따른다. 이전 Thor inference 수치는 학습 검증이 아니며 100만 point 학습·35 ms 성능을 보장하지 않는다.
+### 신규 모델 nuScenes full 학습 결과 (2026-09-10)
+
+| 항목 | 값 |
+|---|---|
+| 데이터 | nuScenes v1.0-trainval, train 28,130 / val 6,019 |
+| 환경 | 8 × RTX A6000 48GB, DDP, global batch 32, 20 epoch, 약 23시간 |
+| 정밀도 | FP32 (`--fp16 None`). FP16은 cyclic LR 약 9.2e-4 도달 시 NaN → Hungarian assigner 실패로 중단 |
+| 구성 | `dsvt_dgf_dal_widthformer_0p3.yaml`, single-sweep, GT-Aug(ObjectPaste) 미사용, ResNet34 ImageNet 초기화 |
+| 실행 | `torchrun --nproc_per_node=8 tools/train_torchrun.py <config> --find_unused_parameters True --fp16 None` |
+| 최고 성능 | epoch 19: mAP 0.5281 / NDS 0.5132 (mATE 0.318 / mASE 0.257 / mAOE 0.643 / mAVE 1.132 / mAAE 0.291) |
+| 최종 epoch | epoch 20: mAP 0.5258 / NDS 0.5129 |
+| 선택 checkpoint | `runs/full_fp32_fix/best_object/nds_epoch_19.pth` |
+| 필요 코드 | commit `000230e` 이상 (DAL heatmap `[Y,X]` 타깃 수정 + ResNet34 `init_cfg`) |
+
+mAVE 1.132는 단일 sweep에서 속도가 관측 불가능한 구조적 결과이며 NDS 속도 항에 0으로 반영된다. 클래스별로는 car 0.806 / pedestrian 0.767이 높고 construction_vehicle 0.165 / bicycle 0.255 / trailer 0.385가 낮다. 이 세 클래스는 GT-Aug 효과가 큰 희소 클래스다. 후속 우선순위는 GT-Aug 추가 재학습, 학습 weight 기준 FP16 engine 재검증, 10-sweep 대조 실험 순이다.
+
+현재 **기존 모델의 전체 학습, 신규 학습 weight의 TensorRT 수치 일치·정확도, resume 및 위 MPI 평가 명령의 end-to-end 완료를 확인한 상태는 아니다**. Docker image build/컨테이너 학습 역시 미실행이며 환경 검사 범위는 [Docker 문서](../docker/README.md#소스-변경과-검증-상태)를 따른다. 이전 Thor inference 수치는 학습 검증이 아니며 100만 point 학습·35 ms 성능을 보장하지 않는다.
