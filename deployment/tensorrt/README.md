@@ -276,6 +276,6 @@ Builder가 `PASS`를 출력하려면 다음 조건을 만족해야 한다.
 6. deserialize, execution context 생성 및 opt shape 출력 계약 확인
 7. build/bundle manifest 기록
 
-2026-09-09 학습 서버 재점검에서는 `swmai-bevfusion-e7ad28a7f781/runs/mini_fp32/epoch_20.pth`를 strict load하고 공식 `export_all.py` 전체를 작은 진단 capacity(`1000/64/64`)로 실행했다. Camera/DSVT/neck/Fusion ONNX 4개의 checker, NPZ weight 46개, 세 branch의 동일 model identity, LiDAR artifact hash와 오프라인 model load가 통과했다.
+2026-09-09 학습 서버 재점검에서는 `bevfusion-e7ad28a7/runs/mini_fp32/epoch_20.pth`를 strict load하고 공식 `export_all.py` 전체를 작은 진단 capacity(`1000/64/64`)로 실행했다. Camera/DSVT/neck/Fusion ONNX 4개의 checker, NPZ weight 46개, 세 branch의 동일 model identity, LiDAR artifact hash와 오프라인 model load가 통과했다.
 
 ONNX export와 현재 bundle 검사/launcher CPU 테스트 18개는 각각 변환 및 파일 계약의 검증이다. C++ inference 실행 구조의 근거는 기존 Thor 실측을 사용한다. 현재 패키징 변경본을 재측정했다는 뜻은 아니며, 새로운 weight/capacity의 성능·정확도 확인은 해당 구성의 배포 검증에 속한다. 실측 수치·메모리 해석은 [runtime/README.md](../runtime/README.md#검증-근거와-적용-범위)를 따른다.

@@ -157,7 +157,7 @@ Box 순서는 `x,y,z_bottom,dx,dy,dz,yaw,vx,vy`다. Threshold, 최종 정렬과 
 
 ## 검증 상태
 
-2026-09-07에 random-init 기준 Camera, standalone DSVT와 Fusion ONNX export 및 ONNX checker를 통과했다. 2026-09-09에는 학습 서버의 `2608_bevfusion` 환경에서 `swmai-bevfusion-e7ad28a7f781/runs/mini_fp32/epoch_20.pth`를 사용해 공식 `export_all.py` 경로 전체를 `1000 points / 64 pillars / 64 sets` 진단 capacity로 실행했다. 다음 항목이 통과했다.
+2026-09-07에 random-init 기준 Camera, standalone DSVT와 Fusion ONNX export 및 ONNX checker를 통과했다. 2026-09-09에는 학습 서버의 `2608_bevfusion` 환경에서 `bevfusion-e7ad28a7/runs/mini_fp32/epoch_20.pth`를 사용해 공식 `export_all.py` 경로 전체를 `1000 points / 64 pillars / 64 sets` 진단 capacity로 실행했다. 다음 항목이 통과했다.
 
 - 외부 pretrained URL 접근 없는 model 생성 및 실제 PTH 전체 weight strict 일치
 - Camera, padded DSVT backbone, LiDAR BEV neck와 Fusion ONNX 4개의 export 및 ONNX checker

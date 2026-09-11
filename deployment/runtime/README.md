@@ -144,7 +144,7 @@ Thor의 CPU와 GPU는 물리 메모리를 공유한다. 아래 지표를 함께 
 
 별도 2026-09-04 memory run: persistent I/O 57.43 MiB, TRT context 요구량 681.69 MiB, tracked 합계 739.12 MiB, inference RSS 447.80 MiB. 시스템 전체 used 17,208.71 MiB는 모델 단독 메모리가 아니다. 원본: [통합 메모리 JSON](evidence/thor_20260904_cpp_runtime_memory_corrected.json). 이 JSON의 20회 clean latency는 위 100회 측정과 별도 실행이다.
 
-두 JSON은 이전 저장소 `swmai-bevfusion-e7ad28a7f781/deploy/thor/results/`에서 내용 변경 없이 옮긴 근거 사본이다. 내부 command/경로는 측정 당시 기록이며 현재 실행 명령은 이 문서의 빌드/실행 절차를 사용한다.
+두 JSON은 이전 저장소 `bevfusion-e7ad28a7/deploy/thor/results/`에서 내용 변경 없이 옮긴 근거 사본이다. 내부 command/경로는 측정 당시 기록이며 현재 실행 명령은 이 문서의 빌드/실행 절차를 사용한다.
 
 ### 현재 저장소 검사와 남은 제품 결정
 
