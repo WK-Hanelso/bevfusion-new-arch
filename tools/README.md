@@ -9,8 +9,8 @@
 Docker 설치·이미지 빌드·GPU/데이터/cache mount는 [docker/README.md](../docker/README.md)를 먼저 따른다. 컨테이너 안에서는 `/workspace/bevfusion`에서 실행하며 별도 venv activate가 필요 없다. 준비된 host venv를 쓰는 경우에만 다음을 실행한다.
 
 ```bash
-cd /home/culee/workspace/bevfusion
-source /home/culee/2608_bevfusion/bin/activate
+cd bevfusion  # 저장소 루트
+source .venv/bin/activate
 ```
 
 | 파일 | 역할 |
@@ -26,7 +26,7 @@ source /home/culee/2608_bevfusion/bin/activate
 
 ## 2. nuScenes-mini / full 데이터 준비
 
-학습 기본 경로는 `data/nuscenes/`다. 현재 host의 mini 원본은 `/home/culee/nuscenes_mini`이며 Docker 기본 mount가 이를 위 경로에 제공한다. Full은 별도 데이터 root를 준비해 mount source를 변경한다. Mini/full의 info PKL 파일명이 같으므로 서로 다른 root로 관리하고 기존 PKL/GT database를 덮어쓰지 않는다.
+학습 기본 경로는 `data/nuscenes/`다. 현재 host의 mini 원본은 `data/nuscenes_mini`이며 Docker 기본 mount가 이를 위 경로에 제공한다. Full은 별도 데이터 root를 준비해 mount source를 변경한다. Mini/full의 info PKL 파일명이 같으므로 서로 다른 root로 관리하고 기존 PKL/GT database를 덮어쓰지 않는다.
 
 ```text
 data/nuscenes/
@@ -82,7 +82,7 @@ python tools/smoke_train.py "$BEVFUSION_CONFIG" \
   --dataroot data/nuscenes --device 0
 ```
 
-Host의 mini 경로를 직접 쓰려면 smoke의 `--dataroot /home/culee/nuscenes_mini`를 사용한다. 이 옵션은 smoke에만 적용되며 전체 학습의 dataset root를 바꾸지 않는다.
+Host의 mini 경로를 직접 쓰려면 smoke의 `--dataroot data/nuscenes_mini`를 사용한다. 이 옵션은 smoke에만 적용되며 전체 학습의 dataset root를 바꾸지 않는다.
 
 Smoke는 batch=1/worker=0으로 실제 한 batch를 읽고 loss 유한성·branch gradient·optimizer step을 확인한다. 기본은 FP32이며 전체 trainer의 `model.init_weights()`나 checkpoint 저장·validation hook을 실행하지 않는다. 따라서 smoke PASS가 pretrained 다운로드, 전체 학습, 재개 또는 평가 성공을 보장하지 않는다.
 

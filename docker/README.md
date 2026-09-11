@@ -34,7 +34,7 @@ Host prerequisite: x86_64 Linux, Docker Engine, 실행 시 GPU를 노출할 NVID
 반드시 **repository root를 build context**로 사용한다.
 
 ```bash
-cd /home/culee/workspace/bevfusion
+cd bevfusion  # 저장소 루트
 docker build --platform linux/amd64 \
   -f docker/Dockerfile \
   --build-arg MAX_JOBS=4 \
@@ -50,12 +50,12 @@ docker build --platform linux/amd64 \
 다음 예는 현재 학습 서버의 mini 경로다. 다른 host에서는 source 경로만 변경한다. Docker에는 소스와 그 소스용 `.so`가 이미 들어 있으므로 기본 사용에서는 repository root 전체를 bind mount하지 않는다.
 
 ```bash
-cd /home/culee/workspace/bevfusion
+cd bevfusion  # 저장소 루트
 mkdir -p runs .cache/bevfusion deployment/artifacts
 
 docker run --rm -it --gpus all --shm-size=16g \
   --user "$(id -u):$(id -g)" \
-  -v /home/culee/nuscenes_mini:/workspace/bevfusion/data/nuscenes:ro \
+  -v "$PWD/data/nuscenes_mini:/workspace/bevfusion/data/nuscenes:ro" \
   -v "$PWD/runs:/workspace/bevfusion/runs" \
   -v "$PWD/.cache/bevfusion:/workspace/cache" \
   -v "$PWD/deployment/artifacts:/workspace/bevfusion/deployment/artifacts" \

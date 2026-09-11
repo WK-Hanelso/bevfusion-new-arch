@@ -12,4 +12,4 @@ evaluation:
       - fusion_space
       - lidar_only_space
       - bev360
-    #log_file: /home/shlee/workspace/bevfusion/eval_outputs/custom_eval3.log
+    #log_file: eval_outputs/custom_eval3.log

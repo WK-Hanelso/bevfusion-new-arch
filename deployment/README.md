@@ -58,8 +58,8 @@ Engine B 내부의 raw-point frontend는 ONNX로 표현하지 않는다. 대신 
 **기존 host venv:**
 
 ```bash
-cd /home/culee/workspace/bevfusion
-source /home/culee/2608_bevfusion/bin/activate
+cd bevfusion  # 저장소 루트
+source .venv/bin/activate
 ```
 
 **학습 Docker 컨테이너:** [docker/README.md](../docker/README.md)의 image build/mount 절차로 들어온 뒤 실행한다. Python 환경은 이미 활성화되어 있으므로 `source`가 필요 없다.

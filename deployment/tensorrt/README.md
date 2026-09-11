@@ -100,7 +100,7 @@ Thor host의 repository와 export artifact를 container에 같은 mount로 제�
 docker run --rm -it \
   --runtime nvidia \
   --ipc host \
-  -v /home/armstrong/workspace/bevfusion:/workspace/bevfusion \
+  -v "$PWD:/workspace/bevfusion" \
   -w /workspace/bevfusion \
   depthfusion:thor-trt-v3 bash
 ```
@@ -122,8 +122,8 @@ PTH는 학습 서버에서만 사용한다. Thor에는 `deployment/artifacts/onn
 현재 config와 일치하는 checkpoint를 사용한다. Capacity는 engine artifact의 일부이므로 명시적으로 지정한다. 아래 예시는 host venv 기준이다. 학습 Docker에서는 [export 환경·checkpoint 경로](../README.md#학습-서버에서-export)를 따라 `/workspace/bevfusion`에서 실행하고 `source`를 생략한다.
 
 ```bash
-cd /home/culee/workspace/bevfusion
-source /home/culee/2608_bevfusion/bin/activate
+cd bevfusion  # 저장소 루트
+source .venv/bin/activate
 
 python deployment/onnx/export_all.py \
   --checkpoint /absolute/path/model.pth \
