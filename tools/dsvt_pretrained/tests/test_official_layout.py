@@ -14,6 +14,7 @@ from torch import nn
 
 ROOT = Path(__file__).resolve().parents[3]
 CORE_PATH = ROOT / "mmdet3d" / "models" / "backbones" / "dsvt_core.py"
+DEPLOY_PATH = ROOT / "deployment" / "onnx" / "dsvt_backbone.py"
 OFFICIAL_ROOT = Path(
     "/tmp/claude-1000/-home-hanelso-hanelso/"
     "8edcff05-d561-4bd4-9120-e7bcf8ad837d/scratchpad/dsvt_ckpt/official"
@@ -23,7 +24,7 @@ REPORT = ROOT / "pretrained" / "dsvt_nuscenes_official_lidar.report.json"
 PREFIX = "encoders.lidar.backbone."
 
 # Frozen from main before adding official_layout. This deliberately detects key
-# additions, removals, renames, and shape changes in the default path.
+# additions, removals, renames, and shape changes in the explicit legacy path.
 LEGACY_STATE_SNAPSHOT = [
   [
     "vfe.voxel_size",
@@ -1657,7 +1658,68 @@ def _load_module(name, path):
     return module
 
 
+def _load_export_neck_wrapper():
+    contract_name = "deployment.onnx.model_contract"
+    compat_name = "deployment.onnx.onnx_compat"
+    saved = {
+        name: sys.modules.get(name) for name in (contract_name, compat_name)
+    }
+    contract = types.ModuleType(contract_name)
+    contract.DEFAULT_CONFIG = ROOT / "unused.json"
+    contract.LIDAR_BEV_SHAPE = (1, 256, 180, 180)
+    contract.lidar_export_contract = lambda encoder: {}
+    contract.load_deployment_model = lambda *args, **kwargs: None
+    contract.sha256_file = lambda path: ""
+    compat = types.ModuleType(compat_name)
+    compat.load_and_check_onnx = lambda *args, **kwargs: None
+    compat.prepare_onnx_export = lambda opset: opset
+    try:
+        sys.modules[contract_name] = contract
+        sys.modules[compat_name] = compat
+        module = _load_module(
+            "tested_export_lidar_trt_artifacts",
+            ROOT / "deployment" / "onnx" / "export_lidar_trt_artifacts.py",
+        )
+    finally:
+        for name, original in saved.items():
+            if original is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = original
+    return module.DSVTBEVNeck
+
+
+def _load_lidar_export_contract():
+    names = ("mmcv", "mmdet3d", "mmdet3d.models", "mmdet3d.utils")
+    saved = {name: sys.modules.get(name) for name in names}
+    mmcv = types.ModuleType("mmcv")
+    mmcv.Config = type("Config", (), {})
+    mmdet3d = types.ModuleType("mmdet3d")
+    models = types.ModuleType("mmdet3d.models")
+    models.build_model = lambda *args, **kwargs: None
+    utils = types.ModuleType("mmdet3d.utils")
+    utils.recursive_eval = lambda value: value
+    try:
+        sys.modules.update(
+            mmcv=mmcv,
+            mmdet3d=mmdet3d,
+            **{"mmdet3d.models": models, "mmdet3d.utils": utils},
+        )
+        module = _load_module(
+            "tested_model_contract",
+            ROOT / "deployment" / "onnx" / "model_contract.py",
+        )
+    finally:
+        for name, original in saved.items():
+            if original is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = original
+    return module.lidar_export_contract
+
+
 CORE = _load_module("tested_dsvt_core", CORE_PATH)
+DEPLOY = _load_module("tested_dsvt_deploy", DEPLOY_PATH)
 
 
 def _load_main_core():
@@ -1734,6 +1796,36 @@ def test_legacy_state_dict_snapshot():
     assert actual == LEGACY_STATE_SNAPSHOT
 
 
+def test_default_constructors_use_official_layout():
+    attention = CORE.SetAttention()
+    block = CORE.DSVTBlock()
+    backbone = CORE.DSVTBackbone()
+    encoder = CORE.DSVTLidarEncoder()
+    assert attention.official_layout is True
+    assert block.official_layout is True
+    assert hasattr(block, "layer_norms")
+    assert backbone.official_layout is True
+    assert all(candidate.official_layout for candidate in backbone.blocks)
+    assert encoder.official_layout is True
+    assert isinstance(encoder.neck, CORE.DSVTBEVResNeck)
+
+
+def test_lidar_manifest_contract_records_layout_and_zero_channels():
+    contract = _load_lidar_export_contract()
+    default = CORE.DSVTLidarEncoder(zero_feature_channels=[4])
+    legacy = CORE.DSVTLidarEncoder(
+        official_layout=False, zero_feature_channels=[]
+    )
+    assert contract(default) == {
+        "official_layout": True,
+        "zero_feature_channels": [4],
+    }
+    assert contract(legacy) == {
+        "official_layout": False,
+        "zero_feature_channels": [],
+    }
+
+
 def test_legacy_forward_bitwise_equal():
     main_core = _load_main_core()
     torch.manual_seed(23)
@@ -1797,6 +1889,48 @@ def test_converted_checkpoint_loads_with_only_adapter_missing():
         "load_unexpected=0 report_missing=6 matched=336 "
         "matched_elements=6232032"
     )
+
+
+def test_deployment_backbone_wrapper_matches_official_and_legacy():
+    checkpoint = torch.load(str(CONVERTED), map_location="cpu")
+    converted = {
+        key[len(PREFIX) :]: value
+        for key, value in checkpoint["state_dict"].items()
+        if key.startswith(PREFIX + "backbone.")
+    }
+    backbone_state = {
+        key[len("backbone.") :]: value for key, value in converted.items()
+    }
+    for official_layout in (True, False):
+        torch.manual_seed(47)
+        backbone = CORE.DSVTBackbone(
+            official_layout=official_layout
+        ).eval()
+        if official_layout:
+            backbone.load_state_dict(backbone_state, strict=True)
+        wrapper = DEPLOY.DSVTDeployWrapper(backbone).eval()
+        inputs, coords = DEPLOY.make_inputs(backbone, 48, torch.device("cpu"))
+        with torch.no_grad():
+            expected = backbone(inputs[0], coords)
+            actual = wrapper(*inputs)
+        difference = _max_diff(expected, actual)
+        print(
+            f"deployment_backbone_official={official_layout} "
+            f"max_abs_diff={difference:.9g}"
+        )
+        assert difference == 0.0
+
+
+def test_deployment_neck_wrapper_matches_direct_call():
+    torch.manual_seed(53)
+    neck = CORE.DSVTBEVResNeck().eval()
+    wrapper_type = _load_export_neck_wrapper()
+    export_wrapper = wrapper_type(neck).eval()
+    features = torch.randn(1, 128, 32, 32)
+    with torch.no_grad():
+        expected = neck(features)
+        actual = export_wrapper(features)
+    assert torch.equal(actual, expected)
 
 
 def test_official_set_attention_and_encoder_layer_equivalence():

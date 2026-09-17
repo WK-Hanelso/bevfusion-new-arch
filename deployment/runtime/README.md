@@ -24,10 +24,11 @@ Camera/LiDAR는 서로 다른 host thread에서 `enqueueV3`를 제출한다. 세
 | `trt_components.{hpp,cpp}` | plugin 로딩, engine/context 소유, I/O ABI 검사 |
 | `cuda_resources.{hpp,cpp}` | CUDA buffer/stream/event 수명, 통합 메모리 측정 |
 | `multisensor_pipeline.{hpp,cpp}` | A/B/C 연결, branch 제출, 출력 검사, benchmark |
+| `point_features.{hpp,cpp}` | manifest의 point feature 0 처리 계약과 H2D 전 적용 |
 | `statistics.{hpp,cpp}`, `common.{hpp,cpp}` | percentile 통계, 공통 오류 처리 |
 | `CMakeLists.txt` | C++17 executable `bevfusion_trt_infer` 빌드 |
 | `run_inference.py` | bundle 무결성 확인 후 C++ 실행, Python 표준 라이브러리만 사용 |
-| `tests/test_run_inference.py` | GPU 없는 bundle/launcher 계약 테스트 |
+| `tests/` | GPU 없는 bundle/launcher 계약 및 C++ point feature 단위 테스트 |
 | `evidence/*.json` | 기존 Thor 실측 원본 보관 |
 
 ## 빌드와 실행
@@ -91,6 +92,8 @@ python deployment/runtime/run_inference.py \
 | `--check-only` | launcher 파일 검사만 수행 |
 | `--allow-random-init` | launcher에서 진단용 random-init bundle을 명시적으로 허용 |
 | `--points N` | synthetic point 수. launcher 기본값은 bundle `point-opt`; C++ 직접 실행 기본값은 34,688 |
+| `--lidar-manifest PATH` | launcher가 검증한 Engine B build manifest. C++가 `zero_feature_channels`를 읽어 H2D 전에 적용 |
+| `--zero-feature-channel N` | bundle 없이 C++를 직접 실행하는 진단 경로에서 해당 point feature를 H2D 전에 0으로 덮음. 반복 가능 |
 | `--warmup N` | 기본 20, 0 허용 |
 | `--latency --iterations N` | A/B/C 단독, 직렬·병렬 mean/P50/P90/P95/P99. 기본 100회 |
 | `--memory` | startup/initialization/warmup/inference/shutdown 메모리 및 단계별 peak |
@@ -101,7 +104,7 @@ python deployment/runtime/run_inference.py \
 
 C++ 직접 실행 시 `--camera-engine PATH`, `--lidar-engine PATH`, `--fusion-engine PATH`, `--plugin PATH`(다섯 번), `--parallel-submit`도 사용할 수 있다. 이 경로에는 bundle hash 검사가 없다. 기본 FP16 engine/plugin 경로는 **저장소 root 기준 상대 경로** `deployment/artifacts/tensorrt/`이며 다른 CWD에서는 명시적 경로나 launcher를 사용한다.
 
-현재 engine 계약은 [배포 I/O 표](../README.md#onnx-및-artifact-계약)를 따른다. CLI의 image/geometry는 zero-filled이고 point는 기본 80×80 XY grid 반복이다. 실센서 파일 입력·프레임 갱신 API와 전체 detection 저장 인터페이스는 아직 제공하지 않는다. `N`의 실제 허용 범위는 Engine B profile이며 조용히 입력을 자르지 않는다.
+현재 engine 계약은 [배포 I/O 표](../README.md#onnx-및-artifact-계약)를 따른다. CLI의 image/geometry는 zero-filled이고 point는 기본 80×80 XY grid 반복이다. 기본 config에서는 LiDAR build manifest의 `zero_feature_channels: [4]`를 launcher가 검증·전달하고 C++ runtime이 H2D 전에 `feature[4]`를 0으로 덮는다. 실센서 파일 입력·프레임 갱신 API와 전체 detection 저장 인터페이스는 아직 제공하지 않는다. `N`의 실제 허용 범위는 Engine B profile이며 조용히 입력을 자르지 않는다.
 
 `lidar_status != 0`이면 결과를 폐기하고 오류로 종료한다. 현재 status 검사는 Fusion 완료 후 CPU에서 읽는 방식이다. GPU에서 overflow를 감지해 Fusion enqueue 자체를 생략하는 구조는 아니다. 출력 검사는 boxes finite, scores 0..1, labels 0..9를 확인하며 정확도 비교를 대신하지 않는다.
 
@@ -129,7 +132,7 @@ Thor의 CPU와 GPU는 물리 메모리를 공유한다. 아래 지표를 함께 
 
 ### 기존 Thor 실측
 
-조건: Jetson AGX Thor, `depthfusion:thor-trt-v3`, CUDA 13 / TensorRT 10.13.2.x, FP16 engine, random-init 및 34,688 synthetic points. 기본 capacity는 100,000 points / 10,000 pillars / 512 sets다.
+조건: Jetson AGX Thor, `depthfusion:thor-trt-v3`, CUDA 13 / TensorRT 10.13.2.x, **legacy DSVT 구조**, FP16 engine, random-init 및 34,688 synthetic points. 기본 capacity는 100,000 points / 10,000 pillars / 512 sets다. 아래 26.4 ms를 포함한 수치는 현재 공식 기본 구조의 성능 수치가 아니며, 공식 구조는 Thor에서 재실측하지 않았다.
 
 | 2026-09-03, 100회 측정 | ms |
 |---|---|
@@ -148,10 +151,10 @@ Thor의 CPU와 GPU는 물리 메모리를 공유한다. 아래 지표를 함께 
 
 ### 현재 저장소 검사와 남은 제품 결정
 
-C++의 TensorRT 비의존 모듈 구문·경고 검사와 100만 point CLI 파싱을 확인했다. Bundle launcher CPU 테스트 18개는 손상·혼합·profile 범위·실행 차단·종료 코드 전달을 검증한다. fixture bytes를 사용한 테스트이므로 GPU 실행 테스트가 아니다.
+C++의 TensorRT 비의존 모듈 구문·경고 검사와 100만 point CLI 파싱을 확인했다. CPU 테스트 20개는 손상·혼합·profile 범위·실행 차단·종료 코드 전달, manifest 계약과 H2D 전 채널 0 처리 함수를 검증한다. fixture bytes와 host-side C++ 단위 테스트를 사용하므로 GPU 실행 테스트가 아니다.
 
 ```bash
-python -m unittest discover -s deployment/runtime/tests -v
+PYTHONPATH=. pytest -q deployment/runtime/tests
 ```
 
 현재 `deployment/`는 신규 6-camera A/B/C ABI의 smoke/benchmark runtime이다. 실센서 입력 연동, 학습 checkpoint 정확도, camera 수·BEV 크기 변경, 100만 point의 pillar/set capacity 및 성능·메모리는 별도로 결정한다. 100만 point는 CLI/profile로 표현 가능한 후보이며 기존 실측에서 검증한 point 수가 아니다.

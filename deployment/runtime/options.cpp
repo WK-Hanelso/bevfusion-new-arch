@@ -2,6 +2,7 @@
 
 #include "common.hpp"
 
+#include <algorithm>
 #include <cstdlib>
 #include <iostream>
 #include <stdexcept>
@@ -32,8 +33,10 @@ void printUsage(char const* executable) {
       << "  --camera-engine PATH   Engine A path\n"
       << "  --lidar-engine PATH    Engine B path\n"
       << "  --fusion-engine PATH   Engine C path\n"
+      << "  --lidar-manifest PATH  Verified Engine B build manifest\n"
       << "  --plugin PATH          Engine B plugin; repeat five times\n"
       << "  --points N             Synthetic LiDAR point count (default 34688)\n"
+      << "  --zero-feature-channel N  Zero this point feature before H2D; repeatable\n"
       << "  --synthetic-unique-pillars  Maximize occupied synthetic pillars\n"
       << "  --warmup N             Concurrent warmup iterations (default 20)\n"
       << "  --latency              Measure A/B/C, sequential, concurrent latency\n"
@@ -61,11 +64,22 @@ Options parseOptions(int argc, char** argv) {
       options.lidarEngine = valueAfter(i, argument.c_str());
     } else if (argument == "--fusion-engine") {
       options.fusionEngine = valueAfter(i, argument.c_str());
+    } else if (argument == "--lidar-manifest") {
+      options.lidarManifest = valueAfter(i, argument.c_str());
     } else if (argument == "--plugin") {
       options.plugins.push_back(valueAfter(i, argument.c_str()));
     } else if (argument == "--points") {
       options.points = parsePositive(valueAfter(i, argument.c_str()),
                                      argument.c_str(), false);
+    } else if (argument == "--zero-feature-channel") {
+      int const channel = parsePositive(valueAfter(i, argument.c_str()),
+                                        argument.c_str(), true);
+      require(channel < 5, "--zero-feature-channel must be in [0,4]");
+      require(std::find(options.zeroFeatureChannels.begin(),
+                        options.zeroFeatureChannels.end(), channel) ==
+                  options.zeroFeatureChannels.end(),
+              "duplicate --zero-feature-channel");
+      options.zeroFeatureChannels.push_back(channel);
     } else if (argument == "--warmup") {
       options.warmup = parsePositive(valueAfter(i, argument.c_str()),
                                      argument.c_str(), true);

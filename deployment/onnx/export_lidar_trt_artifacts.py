@@ -18,6 +18,7 @@ from deployment.onnx import dsvt_backbone as dsvt_export
 from deployment.onnx.model_contract import (
     DEFAULT_CONFIG,
     LIDAR_BEV_SHAPE,
+    lidar_export_contract,
     load_deployment_model,
     sha256_file,
 )
@@ -42,9 +43,11 @@ MAX_GRID_SETS = 13 * 13 * 10
 
 
 class PaddedDSVTBackbone(nn.Module):
-    def __init__(self, backbone):
+    def __init__(self, encoder):
         super().__init__()
-        self.transformer = dsvt_export.DSVTDeployWrapper(backbone)
+        self.transformer = dsvt_export.DSVTDeployWrapper(
+            encoder.backbone, encoder.official_layout
+        )
 
     def forward(
         self,
@@ -266,7 +269,7 @@ def main():
         args.max_sets,
         device,
     )
-    backbone_wrapper = PaddedDSVTBackbone(backbone).to(device).eval()
+    backbone_wrapper = PaddedDSVTBackbone(encoder).to(device).eval()
     with torch.no_grad():
         transformed = backbone_wrapper(*padded)
     expected_shape = (args.max_pillars, 128)
@@ -309,6 +312,7 @@ def main():
         "schema_version": 1,
         "engine": "lidar_raw",
         "model": provenance,
+        **lidar_export_contract(encoder),
         "capacity": {
             "max_points": args.max_points,
             "max_pillars": args.max_pillars,

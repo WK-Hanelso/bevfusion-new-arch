@@ -127,11 +127,15 @@ Full 학습 중 확인한 결함 한 가지는 신규 head에 영향을 준다. 
 ## 8. 공식 DSVT 초기화
 
 공식 DSVT nuScenes checkpoint로 신규 모델의 LiDAR 분기(VFE, DSVT backbone,
-residual BEV backbone)를 초기화할 수 있다. 기존
-`dsvt_dgf_dal_widthformer_0p3.yaml`과 그 state dict 구조는 그대로 유지하며,
-전용 `dsvt_dgf_dal_widthformer_0p3_dsvtpre.yaml`에서만 공식 encoder-layer
-residual norm과 residual BEV backbone을 선택한다. single-sweep 입력의 다섯
-번째 `ring_index`도 이 config에서만 0으로 덮어 공식 timestamp=0 의미에 맞춘다.
+residual BEV backbone)를 초기화할 수 있다. 기본
+`dsvt_dgf_dal_widthformer_0p3.yaml`은 공식 encoder-layer residual norm과
+residual BEV backbone을 사용하며, single-sweep 입력의 다섯 번째
+`ring_index`를 0으로 덮어 공식 timestamp=0 의미에 맞춘다.
+
+`dsvt_dgf_dal_widthformer_0p3_legacy.yaml`은 2026-09-10 full 학습 ep19
+(mAP 0.5281 / NDS 0.5132)와 Thor 26.4 ms 측정에 사용한 이전 비잔차 BEV
+backbone 구조의 재현 전용 config다. 공식 DSVT checkpoint는 이 legacy 구조에
+로드할 수 없다.
 
 checkpoint 다운로드, 변환, CPU 검증과 `--load_from` 학습 명령은
 [공식 DSVT 초기화 가이드](tools/dsvt_pretrained/README.md)를 따른다. 변환된
@@ -162,10 +166,10 @@ Production TensorRT
 | Thor 명령과 capacity 명세 | `deployment/tensorrt/README.md` | 공통 |
 | C++ runtime 옵션과 측정 명세 | `deployment/runtime/README.md` | 공통 |
 
-Production Engine B는 CUDA plugin 다섯 개를 사용해 dynamic pillar, PFN scatter, DSVT topology와 dense scatter를 engine 내부에서 수행한다. 공개 입력은 `points FP32 [N,5]`, 출력은 `lidar_bev [1,256,180,180]`와 `lidar_status INT32 [1]`이다. 따라서 배포 runtime에 PyTorch VFE/InputLayer를 남기지 않는다.
+Production Engine B는 CUDA plugin 다섯 개를 사용해 dynamic pillar, PFN scatter, DSVT topology와 dense scatter를 engine 내부에서 수행한다. 공개 입력은 `points FP32 [N,5]`, 출력은 `lidar_bev [1,256,180,180]`와 `lidar_status INT32 [1]`이다. 기본 config의 manifest는 `zero_feature_channels: [4]`를 기록하고 runtime은 H2D 전에 `feature[4]`를 0으로 덮는다. 따라서 배포 runtime에 PyTorch VFE/InputLayer를 남기지 않는다.
 
 기존 Thor 검증 capacity는 `100000 points / 10000 pillars / 512 sets`다. 소스는 최대 point 수를 포함한 capacity를 CMake 옵션으로 변경할 수 있지만, 1,000,000-point 설정은 아직 성능·메모리·정확도 검증 전이다. 자세한 생성 명령과 artifact 이름은 `deployment/README.md`와 `deployment/tensorrt/README.md`를 단일 기준으로 사용한다.
 
-C++ runtime은 `deployment/runtime/`에 있으며 initialization, configurable warmup, 단일 inference, 출력 검사와 선택적 latency/memory 측정을 제공한다. Camera와 LiDAR는 별도 CUDA stream에서 제출되고 Fusion은 두 완료 event를 기다린다. `run_inference.py --bundle ...`는 engine·manifest·plugin SHA-256, model identity와 point profile을 검사한 뒤 C++를 실행한다. 현재 입력은 synthetic이며 실센서 연동은 미구현이다. CPU launcher 테스트 18개는 통과했다. Inference 동작 판단은 기존 Thor 실측을 기준으로 하며, 현재 정리 작업에서 재실측을 완료 조건으로 두지 않는다. [실행/실측 문서](deployment/runtime/README.md)에 근거와 적용 범위를 함께 유지한다.
+C++ runtime은 `deployment/runtime/`에 있으며 initialization, configurable warmup, 단일 inference, 출력 검사와 선택적 latency/memory 측정을 제공한다. Camera와 LiDAR는 별도 CUDA stream에서 제출되고 Fusion은 두 완료 event를 기다린다. `run_inference.py --bundle ...`는 engine·manifest·plugin SHA-256, model identity와 point profile을 검사한 뒤 C++를 실행한다. 현재 입력은 synthetic이며 실센서 연동은 미구현이다. CPU runtime/launcher 테스트 20개는 통과했다. Inference 동작 판단은 기존 Thor 실측을 기준으로 하며, 현재 정리 작업에서 재실측을 완료 조건으로 두지 않는다. [실행/실측 문서](deployment/runtime/README.md)에 근거와 적용 범위를 함께 유지한다.
 
 현재 A/B/C exporter·builder·runtime은 신규 모델의 명시된 6-camera ABI 전용이다. 기존 BEVFusion PyTorch config 보존과 기존 NVIDIA native C++ 배포 지원은 별개이며, 후자는 이 `deployment/`에 구현되어 있지 않다. camera 수·BEV 크기·head output이 달라지는 config는 export 계약과 runtime ABI도 함께 맞춰야 한다.

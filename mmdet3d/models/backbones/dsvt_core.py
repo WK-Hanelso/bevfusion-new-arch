@@ -361,7 +361,7 @@ class SetAttention(nn.Module):
         channels: int = 128,
         heads: int = 8,
         feedforward: int = 256,
-        official_layout: bool = False,
+        official_layout: bool = True,
     ):
         super().__init__()
         self.channels = channels
@@ -410,7 +410,7 @@ class SetAttention(nn.Module):
 
 
 class DSVTBlock(nn.Module):
-    def __init__(self, channels: int = 128, official_layout: bool = False) -> None:
+    def __init__(self, channels: int = 128, official_layout: bool = True) -> None:
         super().__init__()
         self.official_layout = official_layout
         self.layers = nn.ModuleList(
@@ -446,9 +446,10 @@ class DSVTBackbone(nn.Module):
         set_size: int = 90,
         block_count: int = 4,
         window_shape: Sequence[int] = (30, 30, 1),
-        official_layout: bool = False,
+        official_layout: bool = True,
     ) -> None:
         super().__init__()
+        self.official_layout = official_layout
         self.input_layer = DSVTInputLayer(
             channels, (360, 360, 1), window_shape, set_size, block_count
         )
@@ -647,12 +648,13 @@ class DSVTLidarEncoder(nn.Module):
         block_count: int = 4,
         window_shape: Sequence[int] = (30, 30, 1),
         out_channels: int = 256,
-        official_layout: bool = False,
+        official_layout: bool = True,
         zero_feature_channels: List[int] = [],
     ) -> None:
         super().__init__()
         if d_model != 128 or out_channels != 256:
             raise ValueError("the first integration fixes d_model=128 and out_channels=256")
+        self.official_layout = official_layout
         self.vfe = DynamicPillarVFE(
             in_channels,
             d_model,

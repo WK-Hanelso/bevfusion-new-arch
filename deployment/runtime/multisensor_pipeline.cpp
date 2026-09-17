@@ -1,6 +1,7 @@
 #include "multisensor_pipeline.hpp"
 
 #include "common.hpp"
+#include "point_features.hpp"
 
 #include <NvInferPlugin.h>
 #include <cuda_profiler_api.h>
@@ -79,6 +80,14 @@ MultisensorPipeline::MultisensorPipeline(Options options)
             "initialize lidar status");
   auto hostPoints = makeSyntheticPoints(options_.points,
                                         options_.syntheticUniquePillars);
+  auto zeroFeatureChannels = options_.zeroFeatureChannels;
+  if (!options_.lidarManifest.empty()) {
+    require(zeroFeatureChannels.empty(),
+            "manifest and direct zero-feature options are mutually exclusive");
+    zeroFeatureChannels = zeroFeatureChannelsFromManifest(
+        options_.lidarManifest, 5);
+  }
+  zeroPointFeatureChannels(hostPoints, 5, zeroFeatureChannels);
   cudaCheck(cudaMemcpy(points_.data(), hostPoints.data(), points_.bytes(),
                        cudaMemcpyHostToDevice),
             "upload synthetic points");

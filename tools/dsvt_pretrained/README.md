@@ -64,20 +64,23 @@ import하며 저장소로 복사하지 않는다.
 
 ## 4. 학습
 
-기존 config가 아니라 pretrained 전용 config를 선택하고 `--load_from`을
-명시한다. 기본 LR schedule은 기존 학습과 같다.
+기본 config를 선택하고 `--load_from`을 명시한다. 기본 LR schedule은 기존
+학습과 같다.
 
 ```bash
-BEVFUSION_CONFIG=configs/nuscenes/det/transfusion/secfpn/lidar/dsvt_dgf_dal_widthformer_0p3_dsvtpre.yaml
+BEVFUSION_CONFIG=configs/nuscenes/det/transfusion/secfpn/lidar/dsvt_dgf_dal_widthformer_0p3.yaml
 python -m torch.distributed.run --nproc_per_node=1 tools/train_torchrun.py \
   "$BEVFUSION_CONFIG" --run-dir runs/dsvt-pretrained \
   --load_from pretrained/dsvt_nuscenes_official_lidar.pth \
   --data.samples_per_gpu 1 --data.workers_per_gpu 0
 ```
 
-이 config는 `official_layout: true`와 `zero_feature_channels: [4]`를 사용한다.
+기본 config는 `official_layout: true`와 `zero_feature_channels: [4]`를 사용한다.
 현재 single-sweep loader의 다섯 번째 `ring_index`를 0으로 만들어 공식
 single-frame timestamp=0 입력 의미에 맞춘다. 향후
 `LoadPointsFromMultiSweeps`가 다섯 번째 channel에 timestamp를 넣는 구성에서는
 `zero_feature_channels: []`로 바꿔야 한다.
 
+`dsvt_dgf_dal_widthformer_0p3_legacy.yaml`은 기존 ep19 결과와 Thor 측정을
+재현하기 위한 `official_layout: false` 전용 config이며 공식 checkpoint를
+로드할 수 없다.

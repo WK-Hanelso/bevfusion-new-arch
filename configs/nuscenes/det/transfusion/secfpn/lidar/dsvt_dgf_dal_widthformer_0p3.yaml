@@ -186,6 +186,10 @@ model:
       block_count: 4
       window_shape: [30, 30, 1]
       out_channels: 256
+      # Official DSVT checkpoint initialization is supported; see
+      # tools/dsvt_pretrained/README.md.
+      official_layout: true
+      zero_feature_channels: [4]
   fuser:
     type: DepthGFusion
     in_channels: [80, 256]
