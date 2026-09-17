@@ -76,7 +76,7 @@ def verify_bundle(bundle_path, points=None, allow_random_init=False):
     engines = bundle.get("engines")
     require(isinstance(engines, dict) and set(engines) == set(ENGINE_OPTIONS),
             "bundle must contain camera_bev, lidar_raw and fusion_dal")
-    resolved, manifests = {}, {}
+    resolved, resolved_manifests, manifests = {}, {}, {}
     targets = set()
     for name in ENGINE_OPTIONS:
         spec = engines[name]
@@ -84,6 +84,7 @@ def verify_bundle(bundle_path, points=None, allow_random_init=False):
         manifest_path = checked_file(root, spec.get("build_manifest"),
                                      spec.get("build_manifest_sha256"))
         manifest = load_json(manifest_path, name + " build manifest")
+        resolved_manifests[name] = str(manifest_path)
         require(manifest.get("schema_version") == 1, "unsupported build manifest: " + name)
         require(manifest.get("engine_name") == name, "engine name mismatch: " + name)
         require(identity(manifest.get("model"), allow_random_init) == expected_identity,
@@ -119,6 +120,16 @@ def verify_bundle(bundle_path, points=None, allow_random_init=False):
         plugin_paths[name] = str(checked_file(root / "plugins", spec["path"], spec.get("sha256")))
 
     lidar = manifests["lidar_raw"]
+    official_layout = lidar.get("official_layout")
+    require(type(official_layout) is bool, "missing/invalid official_layout")
+    zero_feature_channels = lidar.get("zero_feature_channels")
+    require(isinstance(zero_feature_channels, list),
+            "missing/invalid zero_feature_channels")
+    require(all(type(channel) is int and 0 <= channel < 5
+                for channel in zero_feature_channels),
+            "invalid zero_feature_channels")
+    require(len(set(zero_feature_channels)) == len(zero_feature_channels),
+            "duplicate zero_feature_channels")
     profile = lidar.get("point_profile")
     require(isinstance(profile, dict), "missing point profile")
     bounds = []
@@ -145,10 +156,13 @@ def verify_bundle(bundle_path, points=None, allow_random_init=False):
         "precision": bundle["precision"],
         "model": bundle["model"],
         "engines": resolved,
+        "build_manifests": resolved_manifests,
         "plugins": [plugin_paths[name] for name in PLUGIN_FILES],
         "points": selected_points,
         "point_profile": profile,
         "capacity": capacity,
+        "official_layout": official_layout,
+        "zero_feature_channels": zero_feature_channels,
         "build_target": {"tensorrt_version": trt_version, "machine": machine},
     }
 
@@ -161,6 +175,7 @@ def runtime_command(args, verified):
         command.extend(("--plugin", plugin))
     command.extend(("--points", str(verified["points"]), "--warmup", str(args.warmup),
                     "--iterations", str(args.iterations)))
+    command.extend(("--lidar-manifest", verified["build_manifests"]["lidar_raw"]))
     for name in ("latency", "memory", "profile", "single_thread_submit",
                  "synthetic_unique_pillars"):
         if getattr(args, name):

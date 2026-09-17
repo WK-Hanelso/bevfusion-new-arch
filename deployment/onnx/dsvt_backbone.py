@@ -28,8 +28,13 @@ DSVT_CORE = load_dsvt_core()
 class DSVTDeployWrapper(nn.Module):
     """Official-style TensorRT boundary: DSVT blocks without InputLayer."""
 
-    def __init__(self, backbone):
+    def __init__(self, backbone, official_layout=None):
         super().__init__()
+        if official_layout is None:
+            official_layout = backbone.official_layout
+        if type(official_layout) is not bool or official_layout != backbone.official_layout:
+            raise ValueError("DSVT export layout does not match the backbone")
+        self.official_layout = official_layout
         self.blocks = backbone.blocks
         self.residual_norms = backbone.residual_norms
 
@@ -54,6 +59,7 @@ class DSVTDeployWrapper(nn.Module):
             residual = output
             shift = block_id % 2
             for axis, layer in enumerate(block.layers):
+                layer_input = output
                 output = layer.forward_with_gather(
                     output,
                     indices[shift][axis],
@@ -61,6 +67,8 @@ class DSVTDeployWrapper(nn.Module):
                     position_embeddings[block_id][axis],
                     gathers[shift][axis],
                 )
+                if self.official_layout:
+                    output = block.layer_norms[axis](output + layer_input)
             output = norm(output + residual)
         return output
 
@@ -80,9 +88,14 @@ def make_inputs(backbone, pillars, device):
     ).int()
     src = torch.randn(pillars, 128, device=device)
     _, indices, masks, positions = backbone.input_layer(src, coords)
+    gather_fn = (
+        DSVT_CORE.official_occurrence_gather
+        if backbone.official_layout
+        else DSVT_CORE.last_occurrence_gather
+    )
     gathers = [
         torch.stack(
-            tuple(DSVT_CORE.last_occurrence_gather(value) for value in shifted),
+            tuple(gather_fn(value) for value in shifted),
             dim=0,
         )
         for shifted in indices

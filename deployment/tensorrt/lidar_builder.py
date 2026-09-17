@@ -36,6 +36,18 @@ def load_lidar_artifacts(directory: Path, allow_random_init: bool):
         raise ValueError("LiDAR manifest is missing model provenance")
     if model.get("random_init_diagnostic") and not allow_random_init:
         raise ValueError("refusing random-init LiDAR artifacts for production build")
+    if type(manifest.get("official_layout")) is not bool:
+        raise ValueError("LiDAR manifest is missing a boolean official_layout")
+    zero_feature_channels = manifest.get("zero_feature_channels")
+    if (
+        not isinstance(zero_feature_channels, list)
+        or any(
+            type(channel) is not int or not 0 <= channel < 5
+            for channel in zero_feature_channels
+        )
+        or len(set(zero_feature_channels)) != len(zero_feature_channels)
+    ):
+        raise ValueError("LiDAR manifest has invalid zero_feature_channels")
 
     resolved = {}
     artifacts = manifest.get("artifacts", {})
@@ -549,6 +561,8 @@ def build_raw_lidar_engine(
         "artifact_manifest": str(manifest_path),
         "artifact_manifest_sha256": sha256_file(manifest_path),
         "model": artifact_manifest["model"],
+        "official_layout": artifact_manifest["official_layout"],
+        "zero_feature_channels": artifact_manifest["zero_feature_channels"],
         "precision": options.precision,
         "tf32": options.allow_tf32,
         "workspace_gib": options.workspace_gib,

@@ -32,6 +32,28 @@ LIDAR_BEV_SHAPE = (1, 256, 180, 180)
 POINT_CHANNELS = 5
 
 
+def lidar_export_contract(encoder: torch.nn.Module) -> Dict[str, Any]:
+    """Return the model choices that raw-point deployment must preserve."""
+
+    official_layout = getattr(encoder, "official_layout", None)
+    if type(official_layout) is not bool:
+        raise ValueError("DSVT encoder is missing a boolean official_layout")
+    if official_layout != getattr(encoder.backbone, "official_layout", None):
+        raise ValueError("DSVT encoder/backbone official_layout mismatch")
+    zero_feature_channels = list(encoder.vfe.zero_feature_channels)
+    if any(
+        type(channel) is not int or not 0 <= channel < POINT_CHANNELS
+        for channel in zero_feature_channels
+    ):
+        raise ValueError("invalid DSVT zero_feature_channels")
+    if len(set(zero_feature_channels)) != len(zero_feature_channels):
+        raise ValueError("duplicate DSVT zero_feature_channels")
+    return {
+        "official_layout": official_layout,
+        "zero_feature_channels": zero_feature_channels,
+    }
+
+
 def disable_external_pretrained_init(cfg: Config) -> int:
     """Prevent deployment export from downloading initialization checkpoints.
 

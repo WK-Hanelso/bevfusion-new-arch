@@ -15,7 +15,9 @@ struct Options {
   std::string fusionEngine{
       "deployment/artifacts/tensorrt/"
       "fusion_dal_fp16.engine"};
+  std::string lidarManifest;
   std::vector<std::string> plugins;
+  std::vector<int> zeroFeatureChannels;
   int points{34688};
   int warmup{20};
   int iterations{100};

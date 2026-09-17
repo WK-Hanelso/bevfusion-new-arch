@@ -52,6 +52,8 @@ class BundleTests(unittest.TestCase):
             }
             if name == "lidar_raw":
                 manifest.update(
+                    official_layout=True,
+                    zero_feature_channels=[4],
                     point_profile={"min": [1, 5], "opt": [34688, 5], "max": [1000000, 5]},
                     capacity={"max_points": 1000000, "max_pillars": 10000,
                               "max_sets_per_shift": 512},
@@ -75,6 +77,8 @@ class BundleTests(unittest.TestCase):
         self.assertEqual(result["points"], 34688)
         self.assertEqual(result["check"], "artifact_integrity_only")
         self.assertEqual(len(result["plugins"]), 5)
+        self.assertTrue(result["official_layout"])
+        self.assertEqual(result["zero_feature_channels"], [4])
         for path in result["engines"].values():
             self.assertEqual(Path(path).parent, self.root)
 
@@ -146,6 +150,21 @@ class BundleTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "exceeds capacity"):
             run.verify_bundle(self.bundle_path)
 
+    def test_invalid_lidar_model_contract_rejected(self):
+        for key, value, message in (
+            ("official_layout", None, "official_layout"),
+            ("zero_feature_channels", [5], "zero_feature_channels"),
+            ("zero_feature_channels", [4, 4], "duplicate"),
+        ):
+            with self.subTest(key=key, value=value):
+                self.manifests["lidar_raw"][key] = value
+                self.save()
+                with self.assertRaisesRegex(ValueError, message):
+                    run.verify_bundle(self.bundle_path)
+                self.manifests["lidar_raw"].update(
+                    official_layout=True, zero_feature_channels=[4]
+                )
+
     def test_random_init_requires_explicit_flag(self):
         models = [self.bundle["model"]] + [m["model"] for m in self.manifests.values()]
         for model in models:
@@ -183,6 +202,10 @@ class BundleTests(unittest.TestCase):
         command = launch.call_args.args[0]
         self.assertEqual(command.count("--plugin"), 5)
         self.assertEqual(command[command.index("--points") + 1], "1000000")
+        self.assertEqual(
+            command[command.index("--lidar-manifest") + 1],
+            str(self.root / "lidar_raw.manifest.json"),
+        )
         self.assertIn(str(self.root / "camera_bev.engine"), command)
         self.assertIn("--single-thread-submit", command)
         self.assertNotIn("shell", launch.call_args.kwargs)

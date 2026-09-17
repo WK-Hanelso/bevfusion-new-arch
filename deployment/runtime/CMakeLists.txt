@@ -21,6 +21,7 @@ add_executable(bevfusion_trt_infer
   main.cpp
   common.cpp
   options.cpp
+  point_features.cpp
   cuda_resources.cpp
   trt_components.cpp
   statistics.cpp

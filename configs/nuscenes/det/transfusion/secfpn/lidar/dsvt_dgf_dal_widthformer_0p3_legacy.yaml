@@ -186,10 +186,11 @@ model:
       block_count: 4
       window_shape: [30, 30, 1]
       out_channels: 256
-      # Official DSVT checkpoint initialization is supported; see
-      # tools/dsvt_pretrained/README.md.
-      official_layout: true
-      zero_feature_channels: [4]
+      # Legacy reproduction only: 2026-09-10 full training ep19 reached
+      # mAP 0.5281 / NDS 0.5132 and this layout measured 26.4 ms on Thor.
+      # Official DSVT checkpoints cannot be loaded into this layout.
+      official_layout: false
+      zero_feature_channels: []
   fuser:
     type: DepthGFusion
     in_channels: [80, 256]
@@ -218,3 +219,10 @@ model:
         out_size_factor: 2
       bbox_coder:
         out_size_factor: 2
+
+# Optional server experiment; leave disabled for the default LR schedule.
+# optimizer:
+#   paramwise_cfg:
+#     custom_keys:
+#       encoders.lidar:
+#         lr_mult: 0.1

@@ -24,7 +24,7 @@ Production TensorRT 공개 ABI는 다음과 같다.
 | engine | 입력 | 출력 |
 |---|---|---|
 | Camera A | `images [1,6,3,256,704]`, `geometry [1,6,59,16,44,3]` | `camera_bev [1,80,180,180]` |
-| LiDAR B | `points [N,5]` | `lidar_bev [1,256,180,180]`, `lidar_status [1]` |
+| LiDAR B | `points [N,5]`; 기본 config에서 runtime이 H2D 전에 `feature[4]`를 0으로 덮음 | `lidar_bev [1,256,180,180]`, `lidar_status [1]` |
 | Fusion C | Camera/LiDAR BEV | `boxes [1,200,9]`, `scores [1,200]`, `labels [1,200]` |
 
 Engine B 내부의 raw-point frontend는 ONNX로 표현하지 않는다. 대신 검증된 TensorRT IPluginV3 다섯 개와 native TensorRT PFN/position layers를 DSVT ONNX parts에 연결한다. 최종 Engine B는 PyTorch 없이 raw points를 직접 받는다.
@@ -135,7 +135,7 @@ Camera, Fusion 및 LiDAR manifest에는 동일한 config/checkpoint SHA-256이 �
 | `lidar_frontend_weights.npz` | checkpoint의 PFN 및 position MLP weights |
 | `lidar_trt.manifest.json` | capacity, ABI, artifact hash, checkpoint provenance |
 
-Thor builder가 이 묶음에 CUDA plugins를 연결한 뒤 최종 입력은 `points FP32 [N,5]`가 된다. Point channel 의미는 현재 학습 checkpoint와 정확히 같아야 한다. 기본 nuScenes single-sweep 입력은 `x,y,z,intensity,ring_index`이며, 다른 센서에서 다섯 번째 channel을 변경하면 기존 checkpoint와 호환되지 않는다. 다섯 solid-state LiDAR는 상위 모듈에서 하나의 기준 좌표계와 timestamp로 정렬·병합되어 들어온다는 전제다.
+Thor builder가 이 묶음에 CUDA plugins를 연결한 뒤 최종 입력은 `points FP32 [N,5]`가 된다. LiDAR manifest는 `official_layout`과 `zero_feature_channels`를 기록한다. 기본 nuScenes single-sweep 입력은 `x,y,z,intensity,ring_index`이며 runtime은 manifest의 `[4]`를 읽어 H2D 전에 `feature[4]`를 0으로 덮는다. 다른 sensor feature 계약을 사용하려면 학습 config와 manifest가 함께 일치해야 한다. 다섯 solid-state LiDAR는 상위 모듈에서 하나의 기준 좌표계와 timestamp로 정렬·병합되어 들어온다는 전제다.
 
 `lidar_status=0`은 정상이다. 0이 아니면 pillar/set overflow이므로 출력 BEV를 폐기해야 한다. Profile 밖의 `N`은 enqueue 오류이며 입력을 조용히 자르지 않는다.
 
@@ -164,9 +164,9 @@ Box 순서는 `x,y,z_bottom,dx,dy,dz,yaw,vx,vy`다. Threshold, 최종 정렬과 
 - PFN/position weight 46개 NPZ 생성
 - Camera/LiDAR/Fusion의 동일 config·checkpoint identity와 LiDAR artifact SHA-256 확인
 
-과거 Thor TensorRT 10.13.2.6 환경에서는 기본 capacity `100000 points / 10000 pillars / 512 sets`의 raw-point Engine B와 CUDA plugin 다섯 개가 검증됐다. 이 저장소는 그 구조를 현재 checkpoint/export manifest 흐름으로 패키징한다. Inference 동작 판단은 기존 Thor 실측을 사용하며 현재 정리 작업에 재실측은 포함하지 않는다. 원본 수치와 측정 조건은 [runtime/README.md](runtime/README.md#검증-근거와-적용-범위)를 단일 기준으로 사용한다.
+과거 Thor TensorRT 10.13.2.6 환경에서는 legacy 구조와 기본 capacity `100000 points / 10000 pillars / 512 sets`의 raw-point Engine B 및 CUDA plugin 다섯 개가 검증됐다. 이 저장소는 그 구조를 현재 checkpoint/export manifest 흐름으로 패키징한다. Inference 동작 판단은 기존 Thor 실측을 사용하며 현재 공식 기본 구조는 Thor에서 재실측하지 않았다. 원본 수치와 측정 조건은 [runtime/README.md](runtime/README.md#검증-근거와-적용-범위)를 단일 기준으로 사용한다.
 
-현재 repository의 C++ runtime은 과거 Thor 실행본에서 현재 engine 이름과 ABI로 migration했으며, 학습 서버에서 TensorRT 비의존 모듈 4개의 `g++ -fsyntax-only -Wall -Wextra -Wpedantic` 검사를 통과했고, CLI smoke에서 `--points 1000000 --warmup 0`과 기본 plugin 5개 구성이 확인됐다. 2026-09-10에는 `runtime/run_inference.py`를 추가해 bundle hash·checkpoint identity·plugin·point profile을 검사한 뒤 C++를 실행하도록 연결했고 CPU 테스트 18개가 통과했다. 현재 실행 입력은 synthetic이며 실센서 연동이나 정확도 검증을 뜻하지 않는다.
+현재 repository의 C++ runtime은 과거 Thor 실행본에서 현재 engine 이름과 ABI로 migration했으며, 학습 서버에서 TensorRT 비의존 모듈의 `g++ -fsyntax-only -Wall -Wextra -Wpedantic` 검사를 통과했고, CLI smoke에서 `--points 1000000 --warmup 0`과 기본 plugin 5개 구성이 확인됐다. `runtime/run_inference.py`는 bundle hash·checkpoint identity·plugin·point profile과 LiDAR 구조 계약을 검사한 뒤 C++를 실행하며 CPU runtime/launcher 테스트 20개가 통과했다. 현재 실행 입력은 synthetic이며 실센서 연동이나 정확도 검증을 뜻하지 않는다.
 
 현재 패키징 변경본의 Thor 재빌드·재실행 결과를 새로 기록한 것은 아니다. 새로운 checkpoint/config 또는 1,000,000-point capacity의 성능·정확도는 이전 측정에서 도출할 수 없으며 해당 구성 선택 시 확인한다. 팀이 결정할 입력 명세는 camera 수/순서, 통합 points의 feature 의미/좌표계/시간 기준, point·pillar·set 분포와 capacity, precision, consumer 후처리 정책이다.
 
