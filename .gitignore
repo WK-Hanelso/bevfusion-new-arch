@@ -132,6 +132,8 @@ dmypy.json
 models/*
 data/*
 runs/*
+pretrained/*.pth
+pretrained/*.json
 
 # Deployment binaries and profiler captures belong in deployment/artifacts/.
 deployment/**/*.engine

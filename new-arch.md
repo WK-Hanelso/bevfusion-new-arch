@@ -124,7 +124,20 @@ Full 학습 중 확인한 결함 한 가지는 신규 head에 영향을 준다. 
 
 전체 외부 저장소를 복제하지 않았으며, 현재 BEVFusion 인터페이스에 필요한 아이디어와 연산 경계만 옮겼다.
 
-## 8. ONNX 및 Thor TensorRT 배포
+## 8. 공식 DSVT 초기화
+
+공식 DSVT nuScenes checkpoint로 신규 모델의 LiDAR 분기(VFE, DSVT backbone,
+residual BEV backbone)를 초기화할 수 있다. 기존
+`dsvt_dgf_dal_widthformer_0p3.yaml`과 그 state dict 구조는 그대로 유지하며,
+전용 `dsvt_dgf_dal_widthformer_0p3_dsvtpre.yaml`에서만 공식 encoder-layer
+residual norm과 residual BEV backbone을 선택한다. single-sweep 입력의 다섯
+번째 `ring_index`도 이 config에서만 0으로 덮어 공식 timestamp=0 의미에 맞춘다.
+
+checkpoint 다운로드, 변환, CPU 검증과 `--load_from` 학습 명령은
+[공식 DSVT 초기화 가이드](tools/dsvt_pretrained/README.md)를 따른다. 변환된
+checkpoint와 report는 `pretrained/` 아래 생성되며 git에 포함하지 않는다.
+
+## 9. ONNX 및 Thor TensorRT 배포
 
 학습 모델과 TensorRT 배포는 같은 checkpoint를 사용하지만 실행 경계가 다르다.
 

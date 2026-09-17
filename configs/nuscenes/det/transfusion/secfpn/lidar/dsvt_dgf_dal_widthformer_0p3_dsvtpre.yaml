@@ -1,0 +1,226 @@
+# Runnable camera+LiDAR path: ResNet34 + minimal official-inspired WidthFormer
+# view transform + DSVT + Depth-GFusion + DAL.
+point_cloud_range: [-54.0, -54.0, -5.0, 54.0, 54.0, 3.0]
+voxel_size: [0.3, 0.3, 8.0]
+lidar_sweeps: 0
+
+camera_names:
+  - CAM_FRONT
+  - CAM_FRONT_RIGHT
+  - CAM_FRONT_LEFT
+  - CAM_BACK
+  - CAM_BACK_LEFT
+  - CAM_BACK_RIGHT
+
+input_modality:
+  use_lidar: true
+  use_camera: true
+  use_radar: false
+  use_map: false
+  use_external: false
+
+# DSVT Stage A is intentionally LiDAR-only. ObjectPaste is omitted because it
+# requires a separately generated ground-truth database; this pipeline can run
+# directly from the standard nuScenes info files (including v1.0-mini).
+train_pipeline:
+  -
+    type: LoadMultiViewImageFromFiles
+    to_float32: true
+  -
+    type: LoadPointsFromFile
+    coord_type: LIDAR
+    load_dim: ${load_dim}
+    use_dim: ${use_dim}
+    reduce_beams: ${reduce_beams}
+    load_augmented: ${load_augmented}
+  -
+    type: LoadAnnotations3D
+    with_bbox_3d: true
+    with_label_3d: true
+    with_attr_label: false
+  -
+    type: ImageAug3D
+    final_dim: ${image_size}
+    resize_lim: ${augment2d.resize[0]}
+    bot_pct_lim: [0.0, 0.0]
+    rot_lim: ${augment2d.rotate}
+    rand_flip: true
+    is_train: true
+  -
+    type: GlobalRotScaleTrans
+    resize_lim: ${augment3d.scale}
+    rot_lim: ${augment3d.rotate}
+    trans_lim: ${augment3d.translate}
+    is_train: true
+  -
+    type: RandomFlip3D
+  -
+    type: PointsRangeFilter
+    point_cloud_range: ${point_cloud_range}
+  -
+    type: ObjectRangeFilter
+    point_cloud_range: ${point_cloud_range}
+  -
+    type: ObjectNameFilter
+    classes: ${object_classes}
+  -
+    type: PointShuffle
+  -
+    type: ImageNormalize
+    mean: [0.485, 0.456, 0.406]
+    std: [0.229, 0.224, 0.225]
+  -
+    type: DefaultFormatBundle3D
+    classes: ${object_classes}
+  -
+    type: Collect3D
+    keys:
+      - img
+      - points
+      - gt_bboxes_3d
+      - gt_labels_3d
+    meta_keys:
+      - camera_intrinsics
+      - camera2ego
+      - lidar2ego
+      - lidar2camera
+      - camera2lidar
+      - lidar2image
+      - img_aug_matrix
+      - lidar_aug_matrix
+
+test_pipeline:
+  -
+    type: LoadMultiViewImageFromFiles
+    to_float32: true
+  -
+    type: LoadPointsFromFile
+    coord_type: LIDAR
+    load_dim: ${load_dim}
+    use_dim: ${use_dim}
+    reduce_beams: ${reduce_beams}
+    load_augmented: ${load_augmented}
+  -
+    type: LoadAnnotations3D
+    with_bbox_3d: true
+    with_label_3d: true
+    with_attr_label: false
+  -
+    type: ImageAug3D
+    final_dim: ${image_size}
+    resize_lim: ${augment2d.resize[1]}
+    bot_pct_lim: [0.0, 0.0]
+    rot_lim: [0.0, 0.0]
+    rand_flip: false
+    is_train: false
+  -
+    type: GlobalRotScaleTrans
+    resize_lim: [1.0, 1.0]
+    rot_lim: [0.0, 0.0]
+    trans_lim: 0.0
+    is_train: false
+  -
+    type: PointsRangeFilter
+    point_cloud_range: ${point_cloud_range}
+  -
+    type: ImageNormalize
+    mean: [0.485, 0.456, 0.406]
+    std: [0.229, 0.224, 0.225]
+  -
+    type: DefaultFormatBundle3D
+    classes: ${object_classes}
+  -
+    type: Collect3D
+    keys:
+      - img
+      - points
+      - gt_bboxes_3d
+      - gt_labels_3d
+    meta_keys:
+      - camera_intrinsics
+      - camera2ego
+      - lidar2ego
+      - lidar2camera
+      - camera2lidar
+      - lidar2image
+      - img_aug_matrix
+      - lidar_aug_matrix
+
+model:
+  type: DynamicBEVFusion
+  encoders:
+    camera:
+      backbone:
+        type: ResNet
+        depth: 34
+        out_indices: [1, 2, 3]
+        init_cfg:
+          type: Pretrained
+          checkpoint: https://download.pytorch.org/models/resnet34-b627a593.pth
+      neck:
+        type: LSSFPN
+        in_indices: [2, 1]
+        in_channels: [512, 256]
+        out_channels: 256
+        scale_factor: 1
+      vtransform:
+        type: WidthFormerTransform
+        in_channels: 256
+        out_channels: 80
+        image_size: ${image_size}
+        feature_size: ${[image_size[0] // 16, image_size[1] // 16]}
+        xbound: [-54.0, 54.0, 0.6]
+        ybound: [-54.0, 54.0, 0.6]
+        zbound: [-10.0, 10.0, 20.0]
+        dbound: [1.0, 60.0, 1.0]
+        ffn_channels: 320
+        attention_chunk_size: 0
+        positional_scale: 10.0
+    lidar:
+      type: DSVTLidarEncoder
+      in_channels: 5
+      point_cloud_range: ${point_cloud_range}
+      voxel_size: ${voxel_size}
+      d_model: 128
+      set_size: 90
+      block_count: 4
+      window_shape: [30, 30, 1]
+      out_channels: 256
+      official_layout: true
+      zero_feature_channels: [4]
+  fuser:
+    type: DepthGFusion
+    in_channels: [80, 256]
+    out_channels: 256
+    embed_channels: 256
+    patch_hidden_channels: 640
+    num_heads: 8
+    patch_size: 5
+    attention_downsample: 4
+    xbound: [-54.0, 54.0, 0.6]
+    ybound: [-54.0, 54.0, 0.6]
+    camera_layout: yx
+    lidar_layout: yx
+  decoder:
+    backbone:
+      in_channels: 256
+  heads:
+    object:
+      type: DALDecoupledHead
+      lidar_in_channels: 256
+      train_cfg:
+        grid_size: [360, 360, 1]
+        out_size_factor: 2
+      test_cfg:
+        grid_size: [360, 360, 1]
+        out_size_factor: 2
+      bbox_coder:
+        out_size_factor: 2
+
+# Optional server experiment; leave disabled for the default LR schedule.
+# optimizer:
+#   paramwise_cfg:
+#     custom_keys:
+#       encoders.lidar:
+#         lr_mult: 0.1
+

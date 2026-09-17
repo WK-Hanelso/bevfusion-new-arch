@@ -96,6 +96,19 @@ def last_occurrence_gather(indices: Tensor) -> Tensor:
     )
 
 
+def official_occurrence_gather(indices: Tensor) -> Tensor:
+    """Reproduce the official reverse/scatter duplicate-index selection."""
+
+    flattened = indices.reshape(-1)
+    unique, inverse = torch.unique(flattened, return_inverse=True)
+    positions = torch.arange(
+        inverse.numel(), device=inverse.device, dtype=inverse.dtype
+    )
+    inverse = inverse.flip((0,))
+    positions = positions.flip((0,))
+    return inverse.new_empty(unique.numel()).scatter_(0, inverse, positions)
+
+
 class DynamicPFNLayer(nn.Module):
     def __init__(self, in_channels: int, out_channels: int, last: bool) -> None:
         super().__init__()
@@ -122,9 +135,18 @@ class DynamicPillarVFE(nn.Module):
         channels: int = 128,
         voxel_size: Sequence[float] = (0.3, 0.3, 8.0),
         point_cloud_range: Sequence[float] = (-54, -54, -5, 54, 54, 3),
+        zero_feature_channels: List[int] = [],
     ) -> None:
         super().__init__()
         self.in_channels = in_channels
+        if any(
+            not isinstance(channel, int) or channel < 0 or channel >= in_channels
+            for channel in zero_feature_channels
+        ):
+            raise ValueError(
+                "zero_feature_channels must contain valid zero-based point feature indices"
+            )
+        self.zero_feature_channels = tuple(zero_feature_channels)
         self.register_buffer("voxel_size", torch.tensor(voxel_size, dtype=torch.float32))
         self.register_buffer(
             "point_cloud_range", torch.tensor(point_cloud_range, dtype=torch.float32)
@@ -184,7 +206,11 @@ class DynamicPillarVFE(nn.Module):
             xy[:, 1].to(xyz.dtype) * voxel_size[1] + voxel_size[1] / 2 + pc_range[1]
         )
         center_offset[:, 2] = xyz[:, 2] - (voxel_size[2] / 2 + pc_range[2])
-        features = torch.cat((points[:, 1:], cluster_offset, center_offset), dim=1)
+        point_features = points[:, 1:]
+        if self.zero_feature_channels:
+            point_features = point_features.clone()
+            point_features[:, self.zero_feature_channels] = 0
+        features = torch.cat((point_features, cluster_offset, center_offset), dim=1)
         for layer in self.layers:
             features = layer(features, inverse, groups)
 
@@ -330,9 +356,16 @@ class DSVTInputLayer(nn.Module):
 
 
 class SetAttention(nn.Module):
-    def __init__(self, channels: int = 128, heads: int = 8, feedforward: int = 256):
+    def __init__(
+        self,
+        channels: int = 128,
+        heads: int = 8,
+        feedforward: int = 256,
+        official_layout: bool = False,
+    ):
         super().__init__()
         self.channels = channels
+        self.official_layout = official_layout
         self.attention = nn.MultiheadAttention(channels, heads, batch_first=True)
         self.linear1 = nn.Linear(channels, feedforward)
         self.linear2 = nn.Linear(feedforward, channels)
@@ -366,25 +399,43 @@ class SetAttention(nn.Module):
         return self.norm2(features + self.linear2(self.activation(self.linear1(features))))
 
     def forward(self, features: Tensor, indices: Tensor, mask: Tensor, pos: Tensor) -> Tensor:
+        gather = (
+            official_occurrence_gather(indices)
+            if self.official_layout
+            else last_occurrence_gather(indices)
+        )
         return self.forward_with_gather(
-            features, indices, mask, pos, last_occurrence_gather(indices)
+            features, indices, mask, pos, gather
         )
 
 
 class DSVTBlock(nn.Module):
-    def __init__(self, channels: int = 128) -> None:
+    def __init__(self, channels: int = 128, official_layout: bool = False) -> None:
         super().__init__()
-        self.layers = nn.ModuleList((SetAttention(channels), SetAttention(channels)))
+        self.official_layout = official_layout
+        self.layers = nn.ModuleList(
+            (
+                SetAttention(channels, official_layout=official_layout),
+                SetAttention(channels, official_layout=official_layout),
+            )
+        )
+        if official_layout:
+            self.layer_norms = nn.ModuleList(
+                (nn.LayerNorm(channels), nn.LayerNorm(channels))
+            )
 
     def forward(self, features, set_indices, set_masks, positions, block_id):
         shift = block_id % 2
         for axis, layer in enumerate(self.layers):
-            features = layer(
+            output = layer(
                 features,
                 set_indices[shift][axis],
                 set_masks[shift][axis],
                 positions[axis],
             )
+            if self.official_layout:
+                output = self.layer_norms[axis](output + features)
+            features = output
         return features
 
 
@@ -395,12 +446,15 @@ class DSVTBackbone(nn.Module):
         set_size: int = 90,
         block_count: int = 4,
         window_shape: Sequence[int] = (30, 30, 1),
+        official_layout: bool = False,
     ) -> None:
         super().__init__()
         self.input_layer = DSVTInputLayer(
             channels, (360, 360, 1), window_shape, set_size, block_count
         )
-        self.blocks = nn.ModuleList(DSVTBlock(channels) for _ in range(block_count))
+        self.blocks = nn.ModuleList(
+            DSVTBlock(channels, official_layout) for _ in range(block_count)
+        )
         self.residual_norms = nn.ModuleList(nn.LayerNorm(channels) for _ in range(block_count))
         for parameter in self.parameters():
             if parameter.dim() > 1:
@@ -481,6 +535,105 @@ class DSVTBEVNeck(nn.Module):
         return self.adapter(torch.cat(outputs, dim=1))
 
 
+class DSVTBEVBasicBlock(nn.Module):
+    """BasicBlock used by the official DSVT nuScenes BEV backbone."""
+
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        stride: int = 1,
+        downsample: bool = False,
+    ) -> None:
+        super().__init__()
+        self.conv1 = nn.Conv2d(
+            in_channels, out_channels, 3, stride=stride, padding=1, bias=False
+        )
+        self.bn1 = nn.BatchNorm2d(out_channels, eps=1e-3, momentum=0.01)
+        self.relu1 = nn.ReLU()
+        self.conv2 = nn.Conv2d(
+            out_channels, out_channels, 3, padding=1, bias=False
+        )
+        self.bn2 = nn.BatchNorm2d(out_channels, eps=1e-3, momentum=0.01)
+        self.relu2 = nn.ReLU()
+        self.downsample = downsample
+        if downsample:
+            self.downsample_layer = nn.Sequential(
+                nn.Conv2d(
+                    in_channels, out_channels, 1, stride=stride, bias=False
+                ),
+                nn.BatchNorm2d(out_channels, eps=1e-3, momentum=0.01),
+            )
+
+    def forward(self, features: Tensor) -> Tensor:
+        identity = features
+        output = self.relu1(self.bn1(self.conv1(features)))
+        output = self.bn2(self.conv2(output))
+        if self.downsample:
+            identity = self.downsample_layer(features)
+        output += identity
+        return self.relu2(output)
+
+
+class DSVTBEVResNeck(nn.Module):
+    """Official residual BEV backbone followed by a 384-to-256 adapter."""
+
+    def __init__(self, in_channels: int = 128, out_channels: int = 256) -> None:
+        super().__init__()
+        layer_nums, strides = (1, 2, 2), (1, 2, 2)
+        stage_channels = (128, 128, 256)
+        inputs = (in_channels, *stage_channels[:-1])
+        self.blocks, self.deblocks = nn.ModuleList(), nn.ModuleList()
+        for index in range(3):
+            layers = [
+                DSVTBEVBasicBlock(
+                    inputs[index],
+                    stage_channels[index],
+                    stride=strides[index],
+                    downsample=True,
+                )
+            ]
+            layers.extend(
+                DSVTBEVBasicBlock(stage_channels[index], stage_channels[index])
+                for _ in range(layer_nums[index])
+            )
+            self.blocks.append(nn.Sequential(*layers))
+        self.deblocks.extend(
+            (
+                self.projection(nn.Conv2d(128, 128, 2, stride=2, bias=False)),
+                self.projection(
+                    nn.ConvTranspose2d(128, 128, 1, stride=1, bias=False)
+                ),
+                self.projection(
+                    nn.ConvTranspose2d(256, 128, 2, stride=2, bias=False)
+                ),
+            )
+        )
+        self.adapter = nn.Sequential(
+            nn.Conv2d(384, out_channels, 1, bias=False),
+            nn.BatchNorm2d(out_channels, eps=1e-3, momentum=0.01),
+            nn.ReLU(inplace=True),
+        )
+
+    @staticmethod
+    def projection(layer: nn.Module) -> nn.Sequential:
+        return nn.Sequential(
+            layer,
+            nn.BatchNorm2d(128, eps=1e-3, momentum=0.01),
+            nn.ReLU(),
+        )
+
+    def forward_features(self, features: Tensor) -> Tensor:
+        outputs = []
+        for block, deblock in zip(self.blocks, self.deblocks):
+            features = block(features)
+            outputs.append(deblock(features))
+        return torch.cat(outputs, dim=1)
+
+    def forward(self, features: Tensor) -> Tensor:
+        return self.adapter(self.forward_features(features))
+
+
 class DSVTLidarEncoder(nn.Module):
     """Raw nuScenes points to the fixed fusion-ready LiDAR BEV interface."""
 
@@ -494,14 +647,25 @@ class DSVTLidarEncoder(nn.Module):
         block_count: int = 4,
         window_shape: Sequence[int] = (30, 30, 1),
         out_channels: int = 256,
+        official_layout: bool = False,
+        zero_feature_channels: List[int] = [],
     ) -> None:
         super().__init__()
         if d_model != 128 or out_channels != 256:
             raise ValueError("the first integration fixes d_model=128 and out_channels=256")
-        self.vfe = DynamicPillarVFE(in_channels, d_model, voxel_size, point_cloud_range)
-        self.backbone = DSVTBackbone(d_model, set_size, block_count, window_shape)
+        self.vfe = DynamicPillarVFE(
+            in_channels,
+            d_model,
+            voxel_size,
+            point_cloud_range,
+            zero_feature_channels,
+        )
+        self.backbone = DSVTBackbone(
+            d_model, set_size, block_count, window_shape, official_layout
+        )
         self.scatter = DensePillarScatter(d_model)
-        self.neck = DSVTBEVNeck(d_model, out_channels)
+        neck_type = DSVTBEVResNeck if official_layout else DSVTBEVNeck
+        self.neck = neck_type(d_model, out_channels)
 
     def forward(self, point_batches: List[Tensor]) -> Tensor:
         features, coords, batch_size = self.vfe(point_batches)

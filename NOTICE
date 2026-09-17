@@ -1,0 +1,16 @@
+Third-party notices
+===================
+
+DSVT
+----
+
+This repository includes an adapted DSVT LiDAR encoder layout and a checkpoint
+conversion tool based on the DSVT project by Haiyang-W and contributors.
+
+Source: https://github.com/Haiyang-W/DSVT
+License: Apache License 2.0
+
+The upstream source files and pretrained checkpoint are not redistributed in
+this repository. The applicable Apache License 2.0 text is available in the
+upstream project and at https://www.apache.org/licenses/LICENSE-2.0.
+
