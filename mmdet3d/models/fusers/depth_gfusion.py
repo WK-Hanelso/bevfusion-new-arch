@@ -38,6 +38,8 @@ class DepthGFusion(nn.Module):
     retains that flow while accepting the existing BEVFusion branch channels.
     """
 
+    input_style = "named"
+
     def __init__(
         self,
         in_channels: Sequence[int],

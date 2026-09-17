@@ -20,6 +20,8 @@ class DALDecoupledHead(TransFusionHead):
     TransFusion target assignment, losses and bbox coder remain unchanged.
     """
 
+    needs_lidar_bev = True
+
     def __init__(self, lidar_in_channels=256, hidden_channel=128, **kwargs):
         super().__init__(hidden_channel=hidden_channel, **kwargs)
         if self.num_decoder_layers != 1:

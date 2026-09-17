@@ -10,6 +10,8 @@ __all__ = ["ConvFuser"]
 
 @FUSERS.register_module()
 class ConvFuser(nn.Sequential):
+    input_style = "list"
+
     def __init__(self, in_channels: int, out_channels: int) -> None:
         self.in_channels = in_channels
         self.out_channels = out_channels

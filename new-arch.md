@@ -173,3 +173,26 @@ Production Engine B는 CUDA plugin 다섯 개를 사용해 dynamic pillar, PFN s
 C++ runtime은 `deployment/runtime/`에 있으며 initialization, configurable warmup, 단일 inference, 출력 검사와 선택적 latency/memory 측정을 제공한다. Camera와 LiDAR는 별도 CUDA stream에서 제출되고 Fusion은 두 완료 event를 기다린다. `run_inference.py --bundle ...`는 engine·manifest·plugin SHA-256, model identity와 point profile을 검사한 뒤 C++를 실행한다. 현재 입력은 synthetic이며 실센서 연동은 미구현이다. CPU runtime/launcher 테스트 20개는 통과했다. Inference 동작 판단은 기존 Thor 실측을 기준으로 하며, 현재 정리 작업에서 재실측을 완료 조건으로 두지 않는다. [실행/실측 문서](deployment/runtime/README.md)에 근거와 적용 범위를 함께 유지한다.
 
 현재 A/B/C exporter·builder·runtime은 신규 모델의 명시된 6-camera ABI 전용이다. 기존 BEVFusion PyTorch config 보존과 기존 NVIDIA native C++ 배포 지원은 별개이며, 후자는 이 `deployment/`에 구현되어 있지 않다. camera 수·BEV 크기·head output이 달라지는 config는 export 계약과 runtime ABI도 함께 맞춰야 한다.
+
+## 10. ModularBEVFusion과 Phase 2 ablation 계열
+
+`ModularBEVFusion`은 legacy/new LiDAR encoder, camera view transform, fuser,
+object head의 호출 차이를 한 모델 클래스에서 처리한다. 센서 feature는 이름이
+있는 dict로 유지하므로 학습/평가 순서가 바뀌어도 camera→LiDAR fuser 입력
+순서는 고정된다. fuser는 클래스의 `input_style`(`list` 또는 `named`)로,
+object head는 `needs_lidar_bev`로 dispatch하며 구체 클래스 `isinstance` 분기는
+사용하지 않는다. `DynamicBEVFusion`은 기존 config와 checkpoint key를 위한
+얇은 alias다. `DSVTBEVFusion`은 그대로 유지한다.
+
+단일 센서 구성은 fuser를 우회한다. DAL의 lidar-only 회귀 입력은 LiDAR BEV,
+camera-only 회귀 입력은 decoder 출력이다. 이 camera-only 대체는 비교 실험용
+계약이며 LiDAR-decoupled 회귀와 의미가 같다는 주장은 아니다.
+
+`configs/nuscenes/det/ablation/`의 공통 default, 4-bit canonical leaf 16개,
+기존 실험명 alias 8개가 논문용 비교 계열을 정의한다. B0는 원
+ResNet-50/stride-8 BEVFusion이 아니라 전 조합과 동일한
+ResNet-34/LSSFPN stride-16 camera backbone을 쓰며, DepthLSS + voxel 0.075
+SparseEncoder + ConvFuser + TransFusionHead를 기준으로 한다. DSVT,
+WidthFormer, Depth-GFusion, DAL의 전체 조합과 실행 명령은
+[Phase 2 ablation 가이드](tools/ablation/README.md)에 있다. 배포 exporter의
+조합 지원은 Phase 3 범위다.

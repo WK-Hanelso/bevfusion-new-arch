@@ -22,8 +22,11 @@ OFFICIAL_ROOT = Path(
 CONVERTED = ROOT / "pretrained" / "dsvt_nuscenes_official_lidar.pth"
 REPORT = ROOT / "pretrained" / "dsvt_nuscenes_official_lidar.report.json"
 PREFIX = "encoders.lidar.backbone."
+# Phase 1b changed main's default to official_layout=True, so main is no longer
+# a stable legacy oracle. Pin the last pre-Phase-1 implementation instead.
+LEGACY_BASE_REVISION = "829c7ae"
 
-# Frozen from main before adding official_layout. This deliberately detects key
+# Frozen from the same pre-Phase-1 revision. This deliberately detects key
 # additions, removals, renames, and shape changes in the explicit legacy path.
 LEGACY_STATE_SNAPSHOT = [
   [
@@ -1722,12 +1725,16 @@ CORE = _load_module("tested_dsvt_core", CORE_PATH)
 DEPLOY = _load_module("tested_dsvt_deploy", DEPLOY_PATH)
 
 
-def _load_main_core():
+def _load_legacy_core():
     source = subprocess.check_output(
-        ["git", "show", "main:mmdet3d/models/backbones/dsvt_core.py"],
+        [
+            "git",
+            "show",
+            f"{LEGACY_BASE_REVISION}:mmdet3d/models/backbones/dsvt_core.py",
+        ],
         cwd=str(ROOT),
     )
-    module = types.ModuleType("main_dsvt_core")
+    module = types.ModuleType("legacy_dsvt_core")
     exec(compile(source, str(CORE_PATH), "exec"), module.__dict__)
     return module
 
@@ -1827,9 +1834,9 @@ def test_lidar_manifest_contract_records_layout_and_zero_channels():
 
 
 def test_legacy_forward_bitwise_equal():
-    main_core = _load_main_core()
+    legacy_core = _load_legacy_core()
     torch.manual_seed(23)
-    reference = main_core.DSVTLidarEncoder().eval()
+    reference = legacy_core.DSVTLidarEncoder().eval()
     candidate = CORE.DSVTLidarEncoder(official_layout=False).eval()
     candidate.load_state_dict(reference.state_dict(), strict=True)
     points = _synthetic_points()
