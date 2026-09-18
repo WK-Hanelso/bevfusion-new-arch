@@ -11,7 +11,7 @@ conda run -n bevfusion-b200 python docker/check_environment.py --strict 2>&1 | t
 conda run -n bevfusion-b200 python -c "import torch, mmcv, mmdet3d; print('torch', torch.__version__, torch.version.cuda, 'gpus', torch.cuda.device_count(), torch.cuda.get_device_name(0)); print('mmcv', mmcv.__version__)"
 echo "== 3) DSVT official checkpoint -> converted"
 mkdir -p pretrained
-if [ ! -f pretrained/DSVT_Nuscenes_val.pth ]; then conda run -n bevfusion-b200 pip install -q gdown && conda run -n bevfusion-b200 python -m gdown --fuzzy "https://drive.google.com/file/d/10d7c-uJxg5w4GN-JmRBQi4gQDwHiOHxP/view" -O pretrained/DSVT_Nuscenes_val.pth; fi
+if [ ! -f pretrained/DSVT_Nuscenes_val.pth ]; then conda run -n bevfusion-b200 pip install -q gdown && conda run -n bevfusion-b200 python -m gdown 10d7c-uJxg5w4GN-JmRBQi4gQDwHiOHxP -O pretrained/DSVT_Nuscenes_val.pth; fi
 sha256sum pretrained/DSVT_Nuscenes_val.pth | cut -c1-16
 conda run -n bevfusion-b200 python tools/dsvt_pretrained/convert_official_dsvt.py pretrained/DSVT_Nuscenes_val.pth --output pretrained/dsvt_nuscenes_official_lidar.pth 2>&1 | tail -4 || echo "convert: 인자 확인 필요 (python tools/dsvt_pretrained/convert_official_dsvt.py --help)"
 echo "== 4) data root: ${ROOT:-<미지정>}"
