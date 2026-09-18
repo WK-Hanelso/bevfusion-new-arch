@@ -4,11 +4,15 @@
 import argparse
 import copy
 import difflib
-import itertools
 import sys
 from pathlib import Path
 
 import yaml
+
+try:
+    from .experiments import EXPERIMENTS, LEGACY_CONFIG_ALIASES
+except ImportError:  # Direct execution: python tools/ablation/gen_configs.py
+    from experiments import EXPERIMENTS, LEGACY_CONFIG_ALIASES
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -81,11 +85,6 @@ LIDAR_GEOMETRY = {
 }
 
 
-def _canonical_name(bits):
-    dsvt, widthformer, gfusion, dal = bits
-    return f"dsvt{dsvt}_wf{widthformer}_gf{gfusion}_dal{dal}.yaml"
-
-
 def _combination(bits):
     dsvt, widthformer, gfusion, dal = bits
     return (
@@ -97,20 +96,11 @@ def _combination(bits):
 
 
 CANONICAL_COMBINATIONS = {
-    _canonical_name(bits): _combination(bits)
-    for bits in itertools.product((0, 1), repeat=4)
+    experiment.config_name: _combination(tuple(map(int, experiment.bits)))
+    for experiment in EXPERIMENTS
 }
 
-ALIASES = {
-    "b0_legacy.yaml": "dsvt0_wf0_gf0_dal0.yaml",
-    "e1_dsvt.yaml": "dsvt1_wf0_gf0_dal0.yaml",
-    "e2_widthformer.yaml": "dsvt0_wf1_gf0_dal0.yaml",
-    "e3_gfusion.yaml": "dsvt0_wf0_gf1_dal0.yaml",
-    "e4_dal.yaml": "dsvt0_wf0_gf0_dal1.yaml",
-    "c2_dsvt_widthformer.yaml": "dsvt1_wf1_gf0_dal0.yaml",
-    "c3_dsvt_widthformer_gfusion.yaml": "dsvt1_wf1_gf1_dal0.yaml",
-    "c4_full.yaml": "dsvt1_wf1_gf1_dal1.yaml",
-}
+ALIASES = LEGACY_CONFIG_ALIASES
 
 
 def _leaf_config(lidar, vtransform, fuser, head):
