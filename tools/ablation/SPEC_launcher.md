@@ -9,3 +9,17 @@
 4. **집계 `tools/ablation/aggregate.py`**: 각 run의 mmdet3d 평가 로그에서 epoch별 mAP/NDS/mATE/mASE/mAOE/mAVE/mAAE, s/iter, peak VRAM(로그의 memory), wall time, NaN 여부, ckpt 경로, git commit, seed를 파싱해 `results/screening_summary.csv`·`results/final_ablation.csv`·Markdown 표(B0 대비 ΔmAP/ΔNDS/Δs·iter/ΔVRAM 포함) 생성. `--top-k 4 --by NDS`로 Top-4 선정 출력(B0·FINAL 강제 포함 옵션).
 5. **환경 캡처**: 런처 시작 시 `experiments/runs/<phase>/env_nvidia_smi.txt`, `env_nvcc.txt`, `env_pip_freeze.txt`(conda run -n bevfusion-b200).
 6. 검증(로컬, GPU·mmcv 없음): `--dry-run`으로 16개 배정·명령 출력 테스트, 집계는 가짜 로그 fixture로 파싱 테스트, 기존 pytest 유지. `tools/ablation/README.md`에 사용법. EXEC: `tools/ablation/EXEC_launcher.md`. commit 금지.
+
+## 7. 풀 스케줄러 (2026-09-19 추가, wave 배리어 대체)
+
+동기: B200 실측에서 wave 1의 3개 슬롯이 즉시 실패하고 1개(A2, 10h)만 살아남자 GPU 6장이 10시간 유휴. 사용자 규칙 "GPU가 쉬면 안 됨".
+
+요구:
+1. `launch_waves.py`는 **wave 배리어를 제거**하고 GPU 그룹 풀로 스케줄한다. 대기열 = 선택된 실험(기존 순서 유지). 그룹이 비는 즉시(완료·실패·fatal 패턴 kill) 대기열의 다음 실험을 그 그룹에 투입. 모든 실험이 끝나면 종료.
+2. `--gpus 0,1,2,3,6,7` (기본 0~7): 사용할 GPU 목록. 목록을 `--gpus-per-job` 크기로 앞에서부터 잘라 그룹을 만든다(6개·2/job → 3그룹). `--parallel`은 그룹 수 상한으로만 동작(기본 = 그룹 수).
+3. 출력: 투입 시 `[START] slot=<g> gpus=<list> id=<ID> (queued=<n>)`, 종료 시 기존 `[COMPLETED]/[FAILED] … wall=`을 **즉시** 출력(배리어 대기 없이). `[PLAN]`은 dry-run과 실행 시작 시 대기열 전체를 1회 출력.
+4. metrics.json의 `wave` 필드는 유지하되 의미를 "투입 순번"으로 바꾼다(호환).
+5. 각 슬롯의 `--master_port`는 그룹 인덱스 기준(29500+g)이며 재사용 시 이전 프로세스 종료를 확인한 뒤 투입(포트 충돌 방지, 2초 대기 후 재시도 최대 5회).
+6. `--resume`: status=completed 건너뜀(기존). status=running인 run 디렉터리가 있고 해당 프로세스가 없으면(pid 파일 `launcher.pid` 기록·확인) 재실행 대상.
+7. 테스트: 기존 80개 유지 + (a) 3그룹·5개 실험에서 첫 실험이 즉시 실패하면 4번째 실험이 같은 그룹에 곧바로 투입되는지(subprocess를 가짜 스크립트로 대체), (b) `--gpus 0,1,2,3,6,7` 그룹 분할, (c) dry-run 출력 형식.
+8. README 갱신. EXEC_launcher.md에 §7 절 추가.

@@ -46,6 +46,21 @@ class DepthLSSTransform(BaseDepthTransform):
             nn.BatchNorm2d(64),
             nn.ReLU(True),
         )
+        # dtransform above reduces the depth map by 8x. When the camera
+        # feature stride is larger (e.g. ResNet-34 + LSSFPN at stride 16),
+        # keep reducing by 2x per extra octave so that ``d`` and ``x`` match.
+        depth_stride = 8
+        feature_stride = image_size[0] // feature_size[0]
+        extra = []
+        while depth_stride < feature_stride:
+            extra += [
+                nn.Conv2d(64, 64, 3, stride=2, padding=1),
+                nn.BatchNorm2d(64),
+                nn.ReLU(True),
+            ]
+            depth_stride *= 2
+        if extra:
+            self.dtransform = nn.Sequential(*self.dtransform, *extra)
         self.depthnet = nn.Sequential(
             nn.Conv2d(in_channels + 64, in_channels, 3, padding=1),
             nn.BatchNorm2d(in_channels),
@@ -86,6 +101,8 @@ class DepthLSSTransform(BaseDepthTransform):
         x = x.view(B * N, C, fH, fW)
 
         d = self.dtransform(d)
+        if d.shape[-2:] != x.shape[-2:]:
+            d = nn.functional.adaptive_avg_pool2d(d, x.shape[-2:])
         x = torch.cat([d, x], dim=1)
         x = self.depthnet(x)
 
