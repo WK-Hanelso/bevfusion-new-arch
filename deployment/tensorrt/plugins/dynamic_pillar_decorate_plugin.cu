@@ -1,5 +1,5 @@
 /*
- * TensorRT 10 IPluginV3 for the non-learned DynamicPillarVFE boundary.
+ * TensorRT V2DynamicExt/V3 plugin for the DynamicPillarVFE boundary.
  *
  * Input:  points   float32 [N, 5]
  * Outputs:
@@ -15,6 +15,7 @@
 
 #include <NvInfer.h>
 #include <NvInferPlugin.h>
+#include <NvInferVersion.h>
 #include <cuda_runtime.h>
 #include <cub/device/device_scan.cuh>
 
@@ -22,6 +23,7 @@
 #include <cstdint>
 #include <cstring>
 #include <new>
+#include <string>
 
 namespace dynamic_bevfusion {
 namespace {
@@ -128,6 +130,65 @@ __global__ void emit_coords(const int* occupancy, const int* offsets,
   }
 }
 
+std::size_t plugin_workspace_size() {
+  return align256(kMaxPoints * sizeof(int)) +
+         3 * align256(kCells * sizeof(int)) +
+         align256(kCells * 3 * sizeof(float)) + kCubCapacity + 256;
+}
+
+int32_t enqueue_plugin(PluginTensorDesc const* input_desc,
+                       void const* const* inputs, void* const* outputs,
+                       void* workspace, cudaStream_t stream) {
+  int count = input_desc[0].dims.d[0];
+  if (count < 0 || count > kMaxPoints || input_desc[0].dims.nbDims != 2 ||
+      input_desc[0].dims.d[1] != kPointChannels) {
+    return 1;
+  }
+  void* cursor = workspace;
+  int* point_keys = take<int>(cursor, kMaxPoints);
+  int* occupancy = take<int>(cursor, kCells);
+  int* point_counts = take<int>(cursor, kCells);
+  int* offsets = take<int>(cursor, kCells);
+  float* xyz_sums = take<float>(cursor, kCells * 3);
+  void* cub_storage = reinterpret_cast<void*>(
+      (reinterpret_cast<std::uintptr_t>(cursor) + 255U) &
+      ~std::uintptr_t{255U});
+
+  if (cudaMemsetAsync(occupancy, 0, kCells * sizeof(int), stream) !=
+          cudaSuccess ||
+      cudaMemsetAsync(point_counts, 0, kCells * sizeof(int), stream) !=
+          cudaSuccess ||
+      cudaMemsetAsync(xyz_sums, 0, kCells * 3 * sizeof(float), stream) !=
+          cudaSuccess ||
+      cudaMemsetAsync(outputs[0], 0,
+                      static_cast<std::size_t>(count) * kFeatureChannels *
+                          sizeof(float),
+                      stream) != cudaSuccess ||
+      cudaMemsetAsync(outputs[2], 0, kCells * 4 * sizeof(int), stream) !=
+          cudaSuccess) {
+    return 1;
+  }
+  int threads = 256;
+  int point_blocks = (count + threads - 1) / threads;
+  accumulate_cells<<<point_blocks, threads, 0, stream>>>(
+      static_cast<float const*>(inputs[0]), count, point_keys, occupancy,
+      xyz_sums, point_counts);
+  std::size_t cub_bytes = kCubCapacity;
+  cudaError_t status = cub::DeviceScan::ExclusiveSum(
+      cub_storage, cub_bytes, occupancy, offsets, kCells, stream);
+  if (status != cudaSuccess || cub_bytes > kCubCapacity) return 1;
+  decorate_points<<<point_blocks, threads, 0, stream>>>(
+      static_cast<float const*>(inputs[0]), point_keys, count, offsets,
+      xyz_sums, point_counts, static_cast<float*>(outputs[0]),
+      static_cast<int*>(outputs[1]));
+  emit_coords<<<(kCells + threads - 1) / threads, threads, 0, stream>>>(
+      occupancy, offsets, static_cast<int*>(outputs[2]),
+      static_cast<int*>(outputs[3]));
+  return cudaPeekAtLastError() == cudaSuccess ? 0 : 1;
+}
+
+#if NV_TENSORRT_MAJOR >= 10
+
 class DynamicPillarDecoratePlugin final : public IPluginV3,
                                           public IPluginV3OneCore,
                                           public IPluginV3OneBuild,
@@ -192,9 +253,7 @@ class DynamicPillarDecoratePlugin final : public IPluginV3,
 
   size_t getWorkspaceSize(DynamicPluginTensorDesc const*, int32_t,
                           DynamicPluginTensorDesc const*, int32_t) const noexcept override {
-    return align256(kMaxPoints * sizeof(int)) +
-           3 * align256(kCells * sizeof(int)) +
-           align256(kCells * 3 * sizeof(float)) + kCubCapacity + 256;
+    return plugin_workspace_size();
   }
 
   int32_t onShapeChange(PluginTensorDesc const* in, int32_t nb_inputs,
@@ -209,43 +268,7 @@ class DynamicPillarDecoratePlugin final : public IPluginV3,
                   PluginTensorDesc const*, void const* const* inputs,
                   void* const* outputs, void* workspace,
                   cudaStream_t stream) noexcept override {
-    int count = input_desc[0].dims.d[0];
-    if (count < 0 || count > kMaxPoints) return 1;
-    void* cursor = workspace;
-    int* point_keys = take<int>(cursor, kMaxPoints);
-    int* occupancy = take<int>(cursor, kCells);
-    int* point_counts = take<int>(cursor, kCells);
-    int* offsets = take<int>(cursor, kCells);
-    float* xyz_sums = take<float>(cursor, kCells * 3);
-    void* cub_storage = reinterpret_cast<void*>((reinterpret_cast<std::uintptr_t>(cursor) + 255U) &
-                                                ~std::uintptr_t{255U});
-
-    if (cudaMemsetAsync(occupancy, 0, kCells * sizeof(int), stream) != cudaSuccess ||
-        cudaMemsetAsync(point_counts, 0, kCells * sizeof(int), stream) != cudaSuccess ||
-        cudaMemsetAsync(xyz_sums, 0, kCells * 3 * sizeof(float), stream) != cudaSuccess ||
-        cudaMemsetAsync(outputs[0], 0,
-                        static_cast<std::size_t>(count) * kFeatureChannels * sizeof(float),
-                        stream) != cudaSuccess ||
-        cudaMemsetAsync(outputs[2], 0, kCells * 4 * sizeof(int), stream) != cudaSuccess) {
-      return 1;
-    }
-    int threads = 256;
-    int point_blocks = (count + threads - 1) / threads;
-    accumulate_cells<<<point_blocks, threads, 0, stream>>>(
-        static_cast<float const*>(inputs[0]), count, point_keys, occupancy,
-        xyz_sums, point_counts);
-    std::size_t cub_bytes = kCubCapacity;
-    cudaError_t status = cub::DeviceScan::ExclusiveSum(
-        cub_storage, cub_bytes, occupancy, offsets, kCells, stream);
-    if (status != cudaSuccess || cub_bytes > kCubCapacity) return 1;
-    decorate_points<<<point_blocks, threads, 0, stream>>>(
-        static_cast<float const*>(inputs[0]), point_keys, count, offsets,
-        xyz_sums, point_counts, static_cast<float*>(outputs[0]),
-        static_cast<int*>(outputs[1]));
-    emit_coords<<<(kCells + threads - 1) / threads, threads, 0, stream>>>(
-        occupancy, offsets, static_cast<int*>(outputs[2]),
-        static_cast<int*>(outputs[3]));
-    return cudaPeekAtLastError() == cudaSuccess ? 0 : 1;
+    return enqueue_plugin(input_desc, inputs, outputs, workspace, stream);
   }
 
   IPluginV3* attachToContext(IPluginResourceContext*) noexcept override {
@@ -273,6 +296,135 @@ class DynamicPillarDecorateCreator final : public IPluginCreatorV3One {
  private:
   PluginFieldCollection fields_{};
 };
+
+#else
+
+class DynamicPillarDecoratePlugin final : public IPluginV2DynamicExt {
+ public:
+  int32_t getNbOutputs() const noexcept override { return 4; }
+
+  DimsExprs getOutputDimensions(int32_t output_index,
+                                DimsExprs const* inputs, int32_t nb_inputs,
+                                IExprBuilder& builder) noexcept override {
+    DimsExprs output{};
+    if (nb_inputs != 1 || inputs[0].nbDims != 2) return output;
+    if (output_index == 0) {
+      output.nbDims = 2;
+      output.d[0] = inputs[0].d[0];
+      output.d[1] = builder.constant(kFeatureChannels);
+    } else if (output_index == 1) {
+      output.nbDims = 1;
+      output.d[0] = inputs[0].d[0];
+    } else if (output_index == 2) {
+      output.nbDims = 2;
+      output.d[0] = builder.constant(kCells);
+      output.d[1] = builder.constant(4);
+    } else if (output_index == 3) {
+      output.nbDims = 1;
+      output.d[0] = builder.constant(1);
+    }
+    return output;
+  }
+
+  bool supportsFormatCombination(int32_t pos, PluginTensorDesc const* in_out,
+                                 int32_t nb_inputs,
+                                 int32_t nb_outputs) noexcept override {
+    if (nb_inputs != 1 || nb_outputs != 4 || pos < 0 || pos >= 5) return false;
+    DataType expected = pos <= 1 ? DataType::kFLOAT : DataType::kINT32;
+    return in_out[pos].format == TensorFormat::kLINEAR &&
+           in_out[pos].type == expected;
+  }
+
+  void configurePlugin(DynamicPluginTensorDesc const* inputs,
+                       int32_t nb_inputs,
+                       DynamicPluginTensorDesc const*,
+                       int32_t nb_outputs) noexcept override {
+    if (nb_inputs != 1 || nb_outputs != 4 || inputs[0].desc.dims.nbDims != 2) {
+      return;
+    }
+  }
+
+  size_t getWorkspaceSize(PluginTensorDesc const*, int32_t,
+                          PluginTensorDesc const*,
+                          int32_t) const noexcept override {
+    return plugin_workspace_size();
+  }
+
+  int32_t enqueue(PluginTensorDesc const* input_desc,
+                  PluginTensorDesc const*, void const* const* inputs,
+                  void* const* outputs, void* workspace,
+                  cudaStream_t stream) noexcept override {
+    return enqueue_plugin(input_desc, inputs, outputs, workspace, stream);
+  }
+
+  DataType getOutputDataType(int32_t index, DataType const*,
+                             int32_t nb_inputs) const noexcept override {
+    if (nb_inputs != 1 || index < 0 || index >= 4) return DataType::kFLOAT;
+    return index == 0 ? DataType::kFLOAT : DataType::kINT32;
+  }
+
+  char const* getPluginType() const noexcept override { return kPluginName; }
+  char const* getPluginVersion() const noexcept override {
+    return kPluginVersion;
+  }
+  int32_t initialize() noexcept override { return 0; }
+  void terminate() noexcept override {}
+  size_t getSerializationSize() const noexcept override { return 0; }
+  void serialize(void*) const noexcept override {}
+  void destroy() noexcept override { delete this; }
+  IPluginV2DynamicExt* clone() const noexcept override {
+    auto* plugin = new (std::nothrow) DynamicPillarDecoratePlugin();
+    if (plugin != nullptr) plugin->setPluginNamespace(namespace_.c_str());
+    return plugin;
+  }
+  void setPluginNamespace(char const* plugin_namespace) noexcept override {
+    namespace_ = plugin_namespace != nullptr ? plugin_namespace : "";
+  }
+  char const* getPluginNamespace() const noexcept override {
+    return namespace_.c_str();
+  }
+
+ private:
+  std::string namespace_;
+};
+
+class DynamicPillarDecorateCreator final : public IPluginCreator {
+ public:
+  DynamicPillarDecorateCreator() {
+    fields_.nbFields = 0;
+    fields_.fields = nullptr;
+  }
+  char const* getPluginName() const noexcept override { return kPluginName; }
+  char const* getPluginVersion() const noexcept override {
+    return kPluginVersion;
+  }
+  PluginFieldCollection const* getFieldNames() noexcept override {
+    return &fields_;
+  }
+  IPluginV2* createPlugin(char const*,
+                          PluginFieldCollection const*) noexcept override {
+    auto* plugin = new (std::nothrow) DynamicPillarDecoratePlugin();
+    if (plugin != nullptr) plugin->setPluginNamespace(namespace_.c_str());
+    return plugin;
+  }
+  IPluginV2* deserializePlugin(char const*, void const*,
+                               size_t serial_length) noexcept override {
+    if (serial_length != 0) return nullptr;
+    return createPlugin(nullptr, nullptr);
+  }
+  void setPluginNamespace(char const* plugin_namespace) noexcept override {
+    namespace_ = plugin_namespace != nullptr ? plugin_namespace : "";
+  }
+  char const* getPluginNamespace() const noexcept override {
+    return namespace_.c_str();
+  }
+
+ private:
+  PluginFieldCollection fields_{};
+  std::string namespace_;
+};
+
+#endif
 
 }  // namespace
 }  // namespace dynamic_bevfusion

@@ -1,13 +1,15 @@
-/* TensorRT 10 IPluginV3 for DSVT shifted-window rotated-set construction. */
+/* TensorRT V2DynamicExt/V3 plugin for shifted-window rotated sets. */
 
 #include <NvInfer.h>
 #include <NvInferPlugin.h>
+#include <NvInferVersion.h>
 #include <cuda_runtime.h>
 #include <cub/device/device_scan.cuh>
 
 #include <cstddef>
 #include <cstdint>
 #include <new>
+#include <string>
 
 namespace dynamic_bevfusion {
 namespace {
@@ -150,6 +152,102 @@ __global__ void write_total_sets(const int* occupied, const int* dense_prefix,
   output[shift_id] = total <= kMaxSets ? total : -total;
 }
 
+std::size_t plugin_workspace_size() {
+  return 6 * 256 + 5 * kDenseWindows * sizeof(int) +
+         2 * kDenseWindows * kWindowCells * sizeof(int) + kCubCapacity;
+}
+
+int32_t enqueue_plugin(PluginTensorDesc const* input_desc,
+                       void const* const* inputs, void* const* outputs,
+                       void* workspace, cudaStream_t stream) {
+  if (input_desc[0].dims.nbDims != 2 ||
+      input_desc[0].dims.d[0] != kCoordCapacity ||
+      input_desc[0].dims.d[1] != 4 || input_desc[1].dims.nbDims != 1 ||
+      input_desc[1].dims.d[0] != 1) {
+    return 1;
+  }
+  int threads = 256;
+  for (int shift_id = 0; shift_id < 2; ++shift_id) {
+    int base = shift_id * 4;
+    if (cudaMemsetAsync(outputs[base + 0], 0,
+                        2 * kMaxSets * kSetSize * sizeof(int), stream) !=
+            cudaSuccess ||
+        cudaMemsetAsync(outputs[base + 1], 1,
+                        2 * kMaxSets * kSetSize * sizeof(int), stream) !=
+            cudaSuccess ||
+        cudaMemsetAsync(outputs[base + 2], 0,
+                        2 * kMaxPillars * sizeof(int), stream) != cudaSuccess ||
+        cudaMemsetAsync(outputs[base + 3], 0,
+                        kMaxPillars * 2 * sizeof(float), stream) !=
+            cudaSuccess) {
+      return 1;
+    }
+    unmask_first_slots<<<(2 * kMaxSets + threads - 1) / threads, threads, 0,
+                         stream>>>(static_cast<int*>(outputs[base + 1]));
+
+    void* cursor = workspace;
+    int* occupied = take<int>(cursor, kDenseWindows);
+    int* dense_prefix = take<int>(cursor, kDenseWindows);
+    int* dense_counts = take<int>(cursor, kDenseWindows);
+    int* set_counts = take<int>(cursor, kDenseWindows);
+    int* set_offsets = take<int>(cursor, kDenseWindows);
+    int* owner_y = take<int>(cursor, kDenseWindows * kWindowCells);
+    int* owner_x = take<int>(cursor, kDenseWindows * kWindowCells);
+    void* cub_storage = reinterpret_cast<void*>(
+        (reinterpret_cast<std::uintptr_t>(cursor) + 255U) &
+        ~std::uintptr_t{255U});
+    if (cudaMemsetAsync(occupied, 0, kDenseWindows * sizeof(int), stream) !=
+            cudaSuccess ||
+        cudaMemsetAsync(dense_counts, 0, kDenseWindows * sizeof(int), stream) !=
+            cudaSuccess ||
+        cudaMemsetAsync(set_counts, 0, kDenseWindows * sizeof(int), stream) !=
+            cudaSuccess ||
+        cudaMemsetAsync(owner_y, 0xff,
+                        kDenseWindows * kWindowCells * sizeof(int), stream) !=
+            cudaSuccess ||
+        cudaMemsetAsync(owner_x, 0xff,
+                        kDenseWindows * kWindowCells * sizeof(int), stream) !=
+            cudaSuccess) {
+      return 1;
+    }
+
+    build_dense_metadata<<<(kMaxPillars + threads - 1) / threads, threads, 0,
+                           stream>>>(
+        static_cast<int const*>(inputs[0]), static_cast<int const*>(inputs[1]),
+        shift_id * 15, occupied, dense_counts, owner_y, owner_x,
+        static_cast<float*>(outputs[base + 3]));
+    compact_axis_owners<<<kDenseWindows, 1, 0, stream>>>(owner_y, owner_x);
+    std::size_t cub_bytes = kCubCapacity;
+    if (cub::DeviceScan::ExclusiveSum(cub_storage, cub_bytes, occupied,
+                                      dense_prefix, kDenseWindows, stream) !=
+            cudaSuccess ||
+        cub_bytes > kCubCapacity) {
+      return 1;
+    }
+    compact_windows<<<1, threads, 0, stream>>>(
+        occupied, dense_prefix, dense_counts, set_counts);
+    cub_bytes = kCubCapacity;
+    if (cub::DeviceScan::ExclusiveSum(cub_storage, cub_bytes, set_counts,
+                                      set_offsets, kDenseWindows, stream) !=
+            cudaSuccess ||
+        cub_bytes > kCubCapacity) {
+      return 1;
+    }
+    int work = kDenseWindows * kMaxSetsPerWindow * kSetSize;
+    build_sets_dense<<<(work + threads - 1) / threads, threads, 0, stream>>>(
+        occupied, dense_prefix, dense_counts, set_counts, set_offsets, owner_y,
+        owner_x, static_cast<int*>(outputs[base + 0]),
+        static_cast<int*>(outputs[base + 1]),
+        static_cast<int*>(outputs[base + 2]));
+    write_total_sets<<<1, 1, 0, stream>>>(
+        occupied, dense_prefix, set_counts, set_offsets,
+        static_cast<int*>(outputs[8]), shift_id);
+  }
+  return cudaPeekAtLastError() == cudaSuccess ? 0 : 1;
+}
+
+#if NV_TENSORRT_MAJOR >= 10
+
 class RotatedSetPlugin final : public IPluginV3,
                                public IPluginV3OneCore,
                                public IPluginV3OneBuild,
@@ -213,9 +311,7 @@ class RotatedSetPlugin final : public IPluginV3,
 
   size_t getWorkspaceSize(DynamicPluginTensorDesc const*, int32_t,
                           DynamicPluginTensorDesc const*, int32_t) const noexcept override {
-    // occupied, prefix, counts, set-counts, set-offsets, two 169x900 owners.
-    return 6 * 256 + 5 * kDenseWindows * sizeof(int) +
-           2 * kDenseWindows * kWindowCells * sizeof(int) + kCubCapacity;
+    return plugin_workspace_size();
   }
 
   int32_t onShapeChange(PluginTensorDesc const* in, int32_t inputs,
@@ -225,66 +321,10 @@ class RotatedSetPlugin final : public IPluginV3,
             in[1].dims.nbDims == 1 && in[1].dims.d[0] == 1) ? 0 : 1;
   }
 
-  int32_t enqueue(PluginTensorDesc const*, PluginTensorDesc const*,
+  int32_t enqueue(PluginTensorDesc const* input_desc, PluginTensorDesc const*,
                   void const* const* inputs, void* const* outputs,
                   void* workspace, cudaStream_t stream) noexcept override {
-    int threads = 256;
-    for (int shift_id = 0; shift_id < 2; ++shift_id) {
-      int base = shift_id * 4;
-      if (cudaMemsetAsync(outputs[base + 0], 0,
-                          2 * kMaxSets * kSetSize * sizeof(int), stream) != cudaSuccess ||
-          cudaMemsetAsync(outputs[base + 1], 1,
-                          2 * kMaxSets * kSetSize * sizeof(int), stream) != cudaSuccess ||
-          cudaMemsetAsync(outputs[base + 2], 0,
-                          2 * kMaxPillars * sizeof(int), stream) != cudaSuccess ||
-          cudaMemsetAsync(outputs[base + 3], 0,
-                          kMaxPillars * 2 * sizeof(float), stream) != cudaSuccess) return 1;
-      unmask_first_slots<<<(2 * kMaxSets + threads - 1) / threads, threads, 0, stream>>>(
-          static_cast<int*>(outputs[base + 1]));
-
-      void* cursor = workspace;
-      int* occupied = take<int>(cursor, kDenseWindows);
-      int* dense_prefix = take<int>(cursor, kDenseWindows);
-      int* dense_counts = take<int>(cursor, kDenseWindows);
-      int* set_counts = take<int>(cursor, kDenseWindows);
-      int* set_offsets = take<int>(cursor, kDenseWindows);
-      int* owner_y = take<int>(cursor, kDenseWindows * kWindowCells);
-      int* owner_x = take<int>(cursor, kDenseWindows * kWindowCells);
-      void* cub_storage = reinterpret_cast<void*>(
-          (reinterpret_cast<std::uintptr_t>(cursor) + 255U) & ~std::uintptr_t{255U});
-      if (cudaMemsetAsync(occupied, 0, kDenseWindows * sizeof(int), stream) != cudaSuccess ||
-          cudaMemsetAsync(dense_counts, 0, kDenseWindows * sizeof(int), stream) != cudaSuccess ||
-          cudaMemsetAsync(set_counts, 0, kDenseWindows * sizeof(int), stream) != cudaSuccess ||
-          cudaMemsetAsync(owner_y, 0xff,
-                          kDenseWindows * kWindowCells * sizeof(int), stream) != cudaSuccess ||
-          cudaMemsetAsync(owner_x, 0xff,
-                          kDenseWindows * kWindowCells * sizeof(int), stream) != cudaSuccess) return 1;
-
-      build_dense_metadata<<<(kMaxPillars + threads - 1) / threads, threads, 0, stream>>>(
-          static_cast<int const*>(inputs[0]), static_cast<int const*>(inputs[1]),
-          shift_id * 15, occupied, dense_counts, owner_y, owner_x,
-          static_cast<float*>(outputs[base + 3]));
-      compact_axis_owners<<<kDenseWindows, 1, 0, stream>>>(owner_y, owner_x);
-      std::size_t cub_bytes = kCubCapacity;
-      if (cub::DeviceScan::ExclusiveSum(cub_storage, cub_bytes, occupied,
-                                        dense_prefix, kDenseWindows, stream) != cudaSuccess ||
-          cub_bytes > kCubCapacity) return 1;
-      compact_windows<<<1, threads, 0, stream>>>(
-          occupied, dense_prefix, dense_counts, set_counts);
-      cub_bytes = kCubCapacity;
-      if (cub::DeviceScan::ExclusiveSum(cub_storage, cub_bytes, set_counts,
-                                        set_offsets, kDenseWindows, stream) != cudaSuccess ||
-          cub_bytes > kCubCapacity) return 1;
-      int work = kDenseWindows * kMaxSetsPerWindow * kSetSize;
-      build_sets_dense<<<(work + threads - 1) / threads, threads, 0, stream>>>(
-          occupied, dense_prefix, dense_counts, set_counts, set_offsets,
-          owner_y, owner_x, static_cast<int*>(outputs[base + 0]),
-          static_cast<int*>(outputs[base + 1]), static_cast<int*>(outputs[base + 2]));
-      write_total_sets<<<1, 1, 0, stream>>>(
-          occupied, dense_prefix, set_counts, set_offsets,
-          static_cast<int*>(outputs[8]), shift_id);
-    }
-    return cudaPeekAtLastError() == cudaSuccess ? 0 : 1;
+    return enqueue_plugin(input_desc, inputs, outputs, workspace, stream);
   }
 
   IPluginV3* attachToContext(IPluginResourceContext*) noexcept override { return clone(); }
@@ -308,6 +348,120 @@ class RotatedSetCreator final : public IPluginCreatorV3One {
   AsciiChar const* getPluginVersion() const noexcept override { return kVersion; }
   AsciiChar const* getPluginNamespace() const noexcept override { return ""; }
 };
+
+#else
+
+class RotatedSetPlugin final : public IPluginV2DynamicExt {
+ public:
+  int32_t getNbOutputs() const noexcept override { return 9; }
+  DimsExprs getOutputDimensions(int32_t output_index, DimsExprs const*,
+                                int32_t nb_inputs,
+                                IExprBuilder& builder) noexcept override {
+    DimsExprs output{};
+    if (nb_inputs != 2 || output_index < 0 || output_index >= 9) return output;
+    if (output_index == 8) {
+      output.nbDims = 1;
+      output.d[0] = builder.constant(2);
+      return output;
+    }
+    int slot = output_index % 4;
+    if (slot == 0 || slot == 1) {
+      output.nbDims = 3;
+      output.d[0] = builder.constant(2);
+      output.d[1] = builder.constant(kMaxSets);
+      output.d[2] = builder.constant(kSetSize);
+    } else if (slot == 2) {
+      output.nbDims = 2;
+      output.d[0] = builder.constant(2);
+      output.d[1] = builder.constant(kMaxPillars);
+    } else {
+      output.nbDims = 2;
+      output.d[0] = builder.constant(kMaxPillars);
+      output.d[1] = builder.constant(2);
+    }
+    return output;
+  }
+  bool supportsFormatCombination(int32_t pos, PluginTensorDesc const* io,
+                                 int32_t inputs,
+                                 int32_t outputs) noexcept override {
+    if (inputs != 2 || outputs != 9 || pos < 0 || pos >= 11) return false;
+    int output = pos - inputs;
+    DataType expected = (output == 3 || output == 7) ? DataType::kFLOAT
+                                                     : DataType::kINT32;
+    if (pos < inputs) expected = DataType::kINT32;
+    return io[pos].format == TensorFormat::kLINEAR && io[pos].type == expected;
+  }
+  void configurePlugin(DynamicPluginTensorDesc const*, int32_t,
+                       DynamicPluginTensorDesc const*,
+                       int32_t) noexcept override {}
+  size_t getWorkspaceSize(PluginTensorDesc const*, int32_t,
+                          PluginTensorDesc const*,
+                          int32_t) const noexcept override {
+    return plugin_workspace_size();
+  }
+  int32_t enqueue(PluginTensorDesc const* input_desc, PluginTensorDesc const*,
+                  void const* const* inputs, void* const* outputs,
+                  void* workspace, cudaStream_t stream) noexcept override {
+    return enqueue_plugin(input_desc, inputs, outputs, workspace, stream);
+  }
+  DataType getOutputDataType(int32_t index, DataType const*,
+                             int32_t) const noexcept override {
+    return index == 3 || index == 7 ? DataType::kFLOAT : DataType::kINT32;
+  }
+  char const* getPluginType() const noexcept override { return kName; }
+  char const* getPluginVersion() const noexcept override { return kVersion; }
+  int32_t initialize() noexcept override { return 0; }
+  void terminate() noexcept override {}
+  size_t getSerializationSize() const noexcept override { return 0; }
+  void serialize(void*) const noexcept override {}
+  void destroy() noexcept override { delete this; }
+  IPluginV2DynamicExt* clone() const noexcept override {
+    auto* plugin = new (std::nothrow) RotatedSetPlugin();
+    if (plugin != nullptr) plugin->setPluginNamespace(namespace_.c_str());
+    return plugin;
+  }
+  void setPluginNamespace(char const* plugin_namespace) noexcept override {
+    namespace_ = plugin_namespace != nullptr ? plugin_namespace : "";
+  }
+  char const* getPluginNamespace() const noexcept override {
+    return namespace_.c_str();
+  }
+
+ private:
+  std::string namespace_;
+};
+
+class RotatedSetCreator final : public IPluginCreator {
+ public:
+  char const* getPluginName() const noexcept override { return kName; }
+  char const* getPluginVersion() const noexcept override { return kVersion; }
+  PluginFieldCollection const* getFieldNames() noexcept override {
+    static PluginFieldCollection fields{0, nullptr};
+    return &fields;
+  }
+  IPluginV2* createPlugin(char const*,
+                          PluginFieldCollection const*) noexcept override {
+    auto* plugin = new (std::nothrow) RotatedSetPlugin();
+    if (plugin != nullptr) plugin->setPluginNamespace(namespace_.c_str());
+    return plugin;
+  }
+  IPluginV2* deserializePlugin(char const*, void const*,
+                               size_t serial_length) noexcept override {
+    if (serial_length != 0) return nullptr;
+    return createPlugin(nullptr, nullptr);
+  }
+  void setPluginNamespace(char const* plugin_namespace) noexcept override {
+    namespace_ = plugin_namespace != nullptr ? plugin_namespace : "";
+  }
+  char const* getPluginNamespace() const noexcept override {
+    return namespace_.c_str();
+  }
+
+ private:
+  std::string namespace_;
+};
+
+#endif
 }  // namespace
 }  // namespace dynamic_bevfusion
 

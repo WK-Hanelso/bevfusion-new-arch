@@ -3,6 +3,7 @@
 #include "common.hpp"
 #include "cuda_resources.hpp"
 
+#include <NvInferVersion.h>
 #include <dlfcn.h>
 
 #include <fstream>
@@ -140,7 +141,11 @@ void enqueue(nvinfer1::IExecutionContext& context, cudaStream_t stream,
 }
 
 std::size_t contextDeviceMemoryBytes(Engine const& engine) {
+#if NV_TENSORRT_MAJOR >= 10
   return static_cast<std::size_t>(engine.engine->getDeviceMemorySizeV2());
+#else
+  return static_cast<std::size_t>(engine.engine->getDeviceMemorySize());
+#endif
 }
 
 }  // namespace thor_multisensor

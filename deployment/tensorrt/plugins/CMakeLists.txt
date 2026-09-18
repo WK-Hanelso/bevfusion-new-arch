@@ -41,6 +41,25 @@ if(NOT TENSORRT_INCLUDE_DIR OR NOT TENSORRT_LIBRARY OR
   message(FATAL_ERROR "TensorRT headers or libraries were not found")
 endif()
 
+set(TENSORRT_VERSION_HEADER "${TENSORRT_INCLUDE_DIR}/NvInferVersion.h")
+if(NOT EXISTS "${TENSORRT_VERSION_HEADER}")
+  message(FATAL_ERROR "TensorRT version header was not found: ${TENSORRT_VERSION_HEADER}")
+endif()
+foreach(component MAJOR MINOR PATCH BUILD)
+  file(STRINGS "${TENSORRT_VERSION_HEADER}" TENSORRT_${component}_LINE
+    REGEX "^#define[ \t]+NV_TENSORRT_${component}[ \t]+[0-9]+")
+  if(NOT TENSORRT_${component}_LINE)
+    message(FATAL_ERROR
+      "NV_TENSORRT_${component} was not found in ${TENSORRT_VERSION_HEADER}")
+  endif()
+  string(REGEX REPLACE ".*NV_TENSORRT_${component}[ \t]+([0-9]+).*" "\\1"
+    TENSORRT_${component} "${TENSORRT_${component}_LINE}")
+endforeach()
+message(STATUS
+  "TensorRT ${TENSORRT_MAJOR}.${TENSORRT_MINOR}.${TENSORRT_PATCH}.${TENSORRT_BUILD} "
+  "from ${TENSORRT_VERSION_HEADER}")
+message(STATUS "TensorRT plugin CUDA architectures: ${CMAKE_CUDA_ARCHITECTURES}")
+
 function(add_thor_trt_plugin target source)
   add_library(${target} SHARED ${source})
   target_include_directories(${target} PRIVATE ${TENSORRT_INCLUDE_DIR})

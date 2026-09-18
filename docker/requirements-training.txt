@@ -26,3 +26,6 @@ mpi4py==3.1.6
 typing_extensions==4.13.2
 ninja==1.11.1.1
 psutil==7.2.2
+
+# mmcv-full runtime dependency (mmcv-full is installed with --no-deps).
+addict==2.4.0

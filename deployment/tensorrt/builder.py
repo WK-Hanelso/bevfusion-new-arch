@@ -1,4 +1,4 @@
-"""TensorRT 10 engine builder with manifest and dynamic-profile validation."""
+"""TensorRT 8.5/10 engine builder with manifest and profile validation."""
 
 import ctypes
 import hashlib
@@ -43,6 +43,33 @@ def require_file(path: Path, label: str) -> Path:
     if not resolved.is_file():
         raise FileNotFoundError(f"{label} does not exist: {resolved}")
     return resolved
+
+
+def tensorrt_major(trt) -> int:
+    try:
+        return int(str(trt.__version__).split(".", 1)[0])
+    except (AttributeError, TypeError, ValueError) as error:
+        raise RuntimeError("unable to determine the TensorRT major version") from error
+
+
+def configure_versioned_builder_options(trt, config, options: BuildOptions) -> None:
+    major = tensorrt_major(trt)
+    if major >= 10:
+        config.builder_optimization_level = options.optimization_level
+        config.max_aux_streams = options.max_aux_streams
+        return
+    if major == 8:
+        if options.optimization_level != 3:
+            raise ValueError(
+                "TensorRT 8.5 does not expose builder_optimization_level; "
+                "use the default value 3"
+            )
+        if options.max_aux_streams != 0:
+            raise ValueError(
+                "TensorRT 8.5 does not expose max_aux_streams; use 0"
+            )
+        return
+    raise RuntimeError(f"unsupported TensorRT major version: {major}")
 
 
 def load_json(path: Path, label: str) -> Dict[str, Any]:
@@ -279,8 +306,7 @@ def build_engine(
     config.set_memory_pool_limit(
         trt.MemoryPoolType.WORKSPACE, int(options.workspace_gib * (1 << 30))
     )
-    config.builder_optimization_level = options.optimization_level
-    config.max_aux_streams = options.max_aux_streams
+    configure_versioned_builder_options(trt, config, options)
     if options.allow_tf32:
         config.set_flag(trt.BuilderFlag.TF32)
     else:

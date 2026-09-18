@@ -1,8 +1,16 @@
-# TensorRT engine build for Jetson AGX Thor
+# TensorRT engine build for Jetson AGX Thor and Orin
 
-[저장소](../../README.md) · [배포/입출력 계약](../README.md) · [C++ 실행/기존 실측](../runtime/README.md)
+[저장소](../../README.md) · [배포/입출력 계약](../README.md) · [C++ 실행/기존 실측](../runtime/README.md) · [Orin / TensorRT 8.5](../orin/README.md)
 
-이 디렉터리는 `deployment/onnx`가 생성한 학습 artifact를 Jetson AGX Thor용 TensorRT engine 세 개로 빌드한다. Production Engine B는 raw point `[N,5]`를 직접 입력받으며 PyTorch 연산을 요구하지 않는다.
+이 디렉터리는 `deployment/onnx`가 생성한 학습 artifact를 Jetson AGX Thor 또는 Orin용 TensorRT engine 세 개로 빌드한다. Production Engine B는 raw point `[N,5]`를 직접 입력받으며 PyTorch 연산을 요구하지 않는다.
+
+## TensorRT 8.x 지원
+
+Plugin source는 TensorRT major version에 따라 Thor의 V3 API와 Orin의
+`IPluginV2DynamicExt` API를 선택한다. Orin의 정확한 환경, `sm_87` 빌드 및
+단일-node 검증 명령은 [Orin / TensorRT 8.5 문서](../orin/README.md)를 따른다.
+LiDAR ONNX exporter 기본값은 TensorRT 8.5가 처리할 수 있도록 opset 16을
+유지한다.
 
 ## 최종 engine 경계
 

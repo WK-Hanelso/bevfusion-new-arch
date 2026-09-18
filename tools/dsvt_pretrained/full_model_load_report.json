@@ -1,0 +1,17 @@
+{
+  "config": "configs/nuscenes/det/ablation/dsvt1_wf1_gf1_dal1.yaml",
+  "checkpoint": "pretrained/dsvt_nuscenes_official_lidar.pth",
+  "model_type": "ModularBEVFusion",
+  "checkpoint_tensors": 339,
+  "model_tensors": 935,
+  "lidar_branch_tensors": 345,
+  "lidar_branch_missing": [
+    "encoders.lidar.backbone.neck.adapter.0.weight",
+    "encoders.lidar.backbone.neck.adapter.1.weight",
+    "encoders.lidar.backbone.neck.adapter.1.bias",
+    "encoders.lidar.backbone.neck.adapter.1.running_mean",
+    "encoders.lidar.backbone.neck.adapter.1.running_var"
+  ],
+  "unexpected": [],
+  "loaded_into_lidar_branch": 340
+}

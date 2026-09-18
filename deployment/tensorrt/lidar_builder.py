@@ -11,7 +11,12 @@ import onnx
 from onnx import compose
 
 from deployment.tensorrt.builder import (
-    BuildOptions, PLUGIN_FILES, require_file, sha256_file,
+    BuildOptions,
+    PLUGIN_FILES,
+    configure_versioned_builder_options,
+    require_file,
+    sha256_file,
+    tensorrt_major,
 )
 BACKBONE_INPUTS = (
     "src",
@@ -133,16 +138,30 @@ def replace_tensor(network, old, new) -> None:
     network.remove_tensor(old)
 
 
+def _get_plugin_creator(registry, name, version):
+    if hasattr(registry, "get_creator"):
+        return registry.get_creator(name, version, "")
+    return registry.get_plugin_creator(name, version, "")
+
+
 def create_plugin(trt, registry, name, instance):
-    creator = registry.get_creator(name, "1", "")
+    creator = _get_plugin_creator(registry, name, "1")
     if creator is None:
         raise RuntimeError(f"TensorRT plugin creator missing: {name}:1")
-    plugin = creator.create_plugin(
-        instance, trt.PluginFieldCollection([]), trt.TensorRTPhase.BUILD
-    )
+    fields = trt.PluginFieldCollection([])
+    if tensorrt_major(trt) >= 10:
+        plugin = creator.create_plugin(instance, fields, trt.TensorRTPhase.BUILD)
+    else:
+        plugin = creator.create_plugin(instance, fields)
     if plugin is None:
         raise RuntimeError(f"TensorRT plugin creation failed: {name}:1")
     return plugin
+
+
+def add_plugin(trt, network, inputs, plugin):
+    if tensorrt_major(trt) >= 10:
+        return network.add_plugin_v3(inputs, [], plugin)
+    return network.add_plugin_v2(inputs, plugin)
 
 
 def add_linear_bn_relu(trt, network, tensor, weights, prefix, weight_store):
@@ -243,9 +262,10 @@ def add_frontend(trt, builder, network, registry, weights, capacity, point_profi
     set_size = int(capacity["set_size"])
 
     points = network.add_input("points", trt.float32, (-1, 5))
-    geometry = network.add_plugin_v3(
+    geometry = add_plugin(
+        trt,
+        network,
         [points],
-        [],
         create_plugin(trt, registry, "DynamicPillarDecorate", "pillar_geometry"),
     )
     decorated, inverse, coords, pillar_count = (
@@ -269,17 +289,19 @@ def add_frontend(trt, builder, network, registry, weights, capacity, point_profi
     first = add_linear_bn_relu(
         trt, network, decorated, weights, "pfn0", weight_store
     )
-    first = network.add_plugin_v3(
+    first = add_plugin(
+        trt,
+        network,
         [first],
-        [],
         create_plugin(trt, registry, "TensorBarrier", "pfn1_barrier"),
     ).get_output(0)
     first = network.add_elementwise(
         first, valid_column.get_output(0), trt.ElementWiseOperation.PROD
     ).get_output(0)
-    pooled = network.add_plugin_v3(
+    pooled = add_plugin(
+        trt,
+        network,
         [first, safe_inverse],
-        [],
         create_plugin(trt, registry, "DynamicScatterMax", "pfn1_scatter"),
     ).get_output(0)
     gathered = network.add_gather(pooled, safe_inverse, axis=0).get_output(0)
@@ -291,15 +313,17 @@ def add_frontend(trt, builder, network, registry, weights, capacity, point_profi
     second = network.add_elementwise(
         second, valid_column.get_output(0), trt.ElementWiseOperation.PROD
     ).get_output(0)
-    src = network.add_plugin_v3(
+    src = add_plugin(
+        trt,
+        network,
         [second, safe_inverse],
-        [],
         create_plugin(trt, registry, "DynamicScatterMax", "pfn2_scatter"),
     ).get_output(0)
 
-    rotated = network.add_plugin_v3(
+    rotated = add_plugin(
+        trt,
+        network,
         [coords, pillar_count],
-        [],
         create_plugin(trt, registry, "DSVTRotatedSet", "rotated_sets"),
     )
     positions = []
@@ -445,7 +469,11 @@ def build_raw_lidar_engine(
     if not trt.init_libnvinfer_plugins(logger, ""):
         raise RuntimeError("failed to initialize TensorRT standard plugins")
     builder = trt.Builder(logger)
-    network = builder.create_network(0)
+    if tensorrt_major(trt) >= 10:
+        network_flags = 0
+    else:
+        network_flags = 1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
+    network = builder.create_network(network_flags)
     parser = trt.OnnxParser(network, logger)
     backbone_model = onnx.load(str(artifacts["backbone"]), load_external_data=False)
     neck_model = onnx.load(str(artifacts["neck"]), load_external_data=False)
@@ -476,9 +504,10 @@ def build_raw_lidar_engine(
     )
     for name, old in old_inputs.items():
         replace_tensor(network, old, frontend[name])
-    dense = network.add_plugin_v3(
+    dense = add_plugin(
+        trt,
+        network,
         [transformed, frontend["coords"], frontend["pillar_count"]],
-        [],
         create_plugin(trt, registry, "DSVTDenseScatter", "dense_scatter"),
     ).get_output(0)
     replace_tensor(network, old_dense, dense)
@@ -503,8 +532,7 @@ def build_raw_lidar_engine(
     config.set_memory_pool_limit(
         trt.MemoryPoolType.WORKSPACE, int(options.workspace_gib * (1 << 30))
     )
-    config.builder_optimization_level = options.optimization_level
-    config.max_aux_streams = options.max_aux_streams
+    configure_versioned_builder_options(trt, config, options)
     if options.allow_tf32:
         config.set_flag(trt.BuilderFlag.TF32)
     else:
