@@ -12,9 +12,10 @@ import shutil
 import subprocess
 import sys
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import IO, List, Optional, Sequence
+from typing import IO, Deque, Dict, List, Optional, Sequence, Tuple
 
 try:
     from .experiments import EXPERIMENTS, Experiment, select_experiments
@@ -181,6 +182,8 @@ class RunningJob:
     scan_offset: int = 0
     scan_buffer: str = ""
     live_failures: List[str] = field(default_factory=list)
+    stop_attempts: int = 0
+    next_stop_check: float = 0.0
 
 
 def _start_job(
@@ -244,6 +247,7 @@ def _start_job(
             stderr=subprocess.STDOUT,
             text=True,
         )
+        (run_dir / "launcher.pid").write_text(f"{process.pid}\n")
     except OSError as error:
         startup_error = str(error)
         log_handle.write(f"launcher startup error: {error}\n")
@@ -272,6 +276,10 @@ def _finish_job(job: RunningJob) -> bool:
         return_code = job.process.wait()
     if job.log_handle is not None:
         job.log_handle.close()
+    try:
+        (job.run_dir / "launcher.pid").unlink()
+    except FileNotFoundError:
+        pass
 
     wall_time = time.monotonic() - job.started_monotonic
     failures = _failure_matches(job.run_dir / "train.log")
@@ -328,30 +336,37 @@ def _scan_new_log(job: RunningJob, final: bool = False) -> List[str]:
     return matches
 
 
-def _monitor_wave(jobs: Sequence[RunningJob]) -> None:
-    """Stop only the affected slot when its log reports a fatal condition."""
+def _request_fatal_stop(job: RunningJob, failures: Sequence[str]) -> None:
+    """Terminate a fatal job without blocking progress in the other slots."""
 
-    active = [job for job in jobs if job.process is not None]
-    while active:
-        remaining = []
-        for job in active:
-            new_failures = _scan_new_log(job)
-            if new_failures and job.process is not None and job.process.poll() is None:
-                job.live_failures.extend(new_failures)
-                print(
-                    f"[STOP] wave={job.wave} slot={job.slot} "
-                    f"id={job.experiment.experiment_id} fatal log pattern: "
-                    f"{new_failures[0]}",
-                    flush=True,
-                )
-                job.process.terminate()
-            if job.process is not None and job.process.poll() is None:
-                remaining.append(job)
-            else:
-                job.live_failures.extend(_scan_new_log(job, final=True))
-        active = remaining
-        if active:
-            time.sleep(1.0)
+    job.live_failures.extend(failures)
+    print(
+        f"[STOP] wave={job.wave} slot={job.slot} "
+        f"id={job.experiment.experiment_id} fatal log pattern: {failures[0]}",
+        flush=True,
+    )
+    if job.process is not None:
+        job.process.terminate()
+    job.stop_attempts = 1
+    job.next_stop_check = time.monotonic() + 2.0
+
+
+def _retry_fatal_stop(job: RunningJob, now: float) -> None:
+    """Wait two seconds between at most five termination attempts."""
+
+    if (
+        job.process is None
+        or job.process.poll() is not None
+        or not job.stop_attempts
+        or now < job.next_stop_check
+    ):
+        return
+    if job.stop_attempts < 5:
+        job.process.terminate()
+        job.stop_attempts += 1
+        job.next_stop_check = now + 2.0
+    else:
+        job.process.kill()
 
 
 def _is_completed(run_dir: Path) -> bool:
@@ -364,9 +379,40 @@ def _is_completed(run_dir: Path) -> bool:
         return False
 
 
-def _chunks(values: Sequence[Experiment], size: int):
-    for index in range(0, len(values), size):
-        yield values[index : index + size]
+def _read_status(run_dir: Path) -> Optional[str]:
+    metrics_path = run_dir / "metrics.json"
+    if not metrics_path.is_file():
+        return None
+    try:
+        return json.loads(metrics_path.read_text()).get("status")
+    except (OSError, ValueError):
+        return None
+
+
+def _read_live_pid(run_dir: Path) -> Optional[int]:
+    pid_path = run_dir / "launcher.pid"
+    try:
+        pid = int(pid_path.read_text().strip())
+        if pid <= 0:
+            return None
+        os.kill(pid, 0)
+    except (FileNotFoundError, OSError, ValueError):
+        return None
+    return pid
+
+
+def make_gpu_groups(gpus: str, gpus_per_job: int) -> Tuple[str, ...]:
+    values = [value.strip() for value in gpus.split(",")]
+    if not values or any(not value or not value.isdigit() for value in values):
+        raise ValueError("--gpus must be a comma-separated list of GPU indices")
+    if len(set(values)) != len(values):
+        raise ValueError("--gpus must not contain duplicate GPU indices")
+    if len(values) % gpus_per_job:
+        raise ValueError("--gpus count must be divisible by --gpus-per-job")
+    return tuple(
+        ",".join(values[index : index + gpus_per_job])
+        for index in range(0, len(values), gpus_per_job)
+    )
 
 
 def make_parser() -> argparse.ArgumentParser:
@@ -375,6 +421,11 @@ def make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--epochs", type=int)
     parser.add_argument("--gpus-per-job", type=int, choices=(2, 4))
     parser.add_argument("--parallel", type=int, choices=(2, 4))
+    parser.add_argument(
+        "--gpus",
+        default="0,1,2,3,4,5,6,7",
+        help="comma-separated physical GPU indices (default: 0 through 7)",
+    )
     parser.add_argument("--ids", nargs="+")
     parser.add_argument("--dataroot", default="data/nuscenes/")
     parser.add_argument("--load-from-dsvt")
@@ -395,12 +446,17 @@ def resolve_args(parser: argparse.ArgumentParser, args: argparse.Namespace):
         args.epochs = 6 if args.phase == "screening" else 20
     if args.gpus_per_job is None:
         args.gpus_per_job = 2 if args.phase == "screening" else 4
-    if args.parallel is None:
-        args.parallel = 4 if args.phase == "screening" else 2
     if args.epochs <= 0:
         parser.error("--epochs must be positive")
-    if args.gpus_per_job * args.parallel > 8:
-        parser.error("--gpus-per-job * --parallel cannot exceed 8 GPUs")
+    try:
+        all_groups = make_gpu_groups(args.gpus, args.gpus_per_job)
+    except ValueError as error:
+        parser.error(str(error))
+    if args.parallel is None:
+        args.parallel = len(all_groups)
+    args.gpu_groups = all_groups[: args.parallel]
+    if not args.gpu_groups:
+        parser.error("--gpus does not provide a complete GPU group")
     if args.ids is None:
         if args.phase == "final":
             parser.error("--ids is required for final phase (pass aggregate Top-K IDs)")
@@ -413,6 +469,122 @@ def resolve_args(parser: argparse.ArgumentParser, args: argparse.Namespace):
     return args, tuple(selected)
 
 
+def _planned_jobs(
+    pending: Sequence[Experiment], args: argparse.Namespace, phase_dir: Path
+):
+    for launch_number, experiment in enumerate(pending, start=1):
+        slot = (launch_number - 1) % len(args.gpu_groups)
+        devices = args.gpu_groups[slot]
+        run_dir = phase_dir / experiment.experiment_id
+        command = build_command(
+            experiment=experiment,
+            run_dir=run_dir,
+            epochs=args.epochs,
+            gpus_per_job=args.gpus_per_job,
+            dataroot=args.dataroot,
+            seed=args.seed,
+            master_port=args.master_port + slot,
+            load_from_dsvt=args.load_from_dsvt,
+        )
+        yield launch_number, slot, devices, experiment, command
+
+
+def _run_pool(
+    pending: Sequence[Experiment], args: argparse.Namespace, phase_dir: Path
+) -> bool:
+    queue: Deque[Experiment] = deque(pending)
+    active: Dict[int, RunningJob] = {}
+    revision = git_revision()
+    launch_number = 0
+    all_completed = True
+
+    def launch_next(slot: int) -> None:
+        nonlocal launch_number
+        if not queue:
+            return
+        experiment = queue.popleft()
+        launch_number += 1
+        devices = args.gpu_groups[slot]
+        run_dir = phase_dir / experiment.experiment_id
+        try:
+            (run_dir / "launcher.pid").unlink()
+        except FileNotFoundError:
+            pass
+        command = build_command(
+            experiment,
+            run_dir,
+            args.epochs,
+            args.gpus_per_job,
+            args.dataroot,
+            args.seed,
+            args.master_port + slot,
+            args.load_from_dsvt,
+        )
+        print(
+            f"[START] slot={slot} gpus={devices} id={experiment.experiment_id} "
+            f"(queued={len(queue)})",
+            flush=True,
+        )
+        active[slot] = _start_job(
+            experiment,
+            slot,
+            launch_number,
+            devices,
+            command,
+            run_dir,
+            args.phase,
+            args.epochs,
+            args.seed,
+            revision,
+        )
+
+    try:
+        for slot in range(min(len(args.gpu_groups), len(queue))):
+            launch_next(slot)
+
+        while active:
+            made_progress = False
+            for slot in sorted(tuple(active)):
+                job = active[slot]
+                process_running = (
+                    job.process is not None and job.process.poll() is None
+                )
+                if process_running and not job.stop_attempts:
+                    failures = _scan_new_log(job)
+                    if failures:
+                        _request_fatal_stop(job, failures)
+                _retry_fatal_stop(job, time.monotonic())
+
+                if job.process is not None and job.process.poll() is None:
+                    continue
+                job.live_failures.extend(_scan_new_log(job, final=True))
+                all_completed = _finish_job(job) and all_completed
+                del active[slot]
+                launch_next(slot)
+                made_progress = True
+            if active and not made_progress:
+                time.sleep(0.1)
+    except KeyboardInterrupt:
+        for job in active.values():
+            if job.process is not None and job.process.poll() is None:
+                job.process.terminate()
+        for job in active.values():
+            if job.process is not None:
+                try:
+                    job.process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    job.process.kill()
+                    job.process.wait()
+            if job.log_handle is not None and not job.log_handle.closed:
+                job.log_handle.close()
+            try:
+                (job.run_dir / "launcher.pid").unlink()
+            except FileNotFoundError:
+                pass
+        raise
+    return all_completed
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = make_parser()
     args, selected = resolve_args(parser, parser.parse_args(argv))
@@ -423,90 +595,38 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         run_dir = phase_dir / experiment.experiment_id
         if args.resume and _is_completed(run_dir):
             print(f"[SKIP] completed id={experiment.experiment_id}")
+        elif args.resume and _read_status(run_dir) == "running":
+            live_pid = _read_live_pid(run_dir)
+            if live_pid is not None:
+                print(
+                    f"[SKIP] running id={experiment.experiment_id} pid={live_pid}"
+                )
+            else:
+                pending.append(experiment)
         else:
             pending.append(experiment)
 
     print(
         f"phase={args.phase} jobs={len(pending)} epochs={args.epochs} "
-        f"gpus_per_job={args.gpus_per_job} parallel={args.parallel}"
+        f"gpus_per_job={args.gpus_per_job} parallel={len(args.gpu_groups)}"
     )
-    for wave_number, wave in enumerate(_chunks(pending, args.parallel), start=1):
-        for slot, experiment in enumerate(wave):
-            devices = ",".join(
-                str(slot * args.gpus_per_job + offset)
-                for offset in range(args.gpus_per_job)
-            )
-            run_dir = phase_dir / experiment.experiment_id
-            command = build_command(
-                experiment=experiment,
-                run_dir=run_dir,
-                epochs=args.epochs,
-                gpus_per_job=args.gpus_per_job,
-                dataroot=args.dataroot,
-                seed=args.seed,
-                master_port=args.master_port + slot,
-                load_from_dsvt=args.load_from_dsvt,
-            )
-            print(
-                f"[PLAN] wave={wave_number} slot={slot} "
-                f"id={experiment.experiment_id} bits={experiment.bits} "
-                f"gpus={devices}\n  {shell_command(command, devices)}"
-            )
+    for wave, slot, devices, experiment, command in _planned_jobs(
+        pending, args, phase_dir
+    ):
+        print(
+            f"[PLAN] wave={wave} slot={slot} "
+            f"id={experiment.experiment_id} bits={experiment.bits} "
+            f"gpus={devices}\n  {shell_command(command, devices)}"
+        )
 
     if args.dry_run:
         return 0
     capture_phase_environment(phase_dir)
-    revision = git_revision()
     if not pending:
         return 0
-    all_completed = True
-    active_jobs: List[RunningJob] = []
     try:
-        for wave_number, wave in enumerate(_chunks(pending, args.parallel), start=1):
-            active_jobs = []
-            for slot, experiment in enumerate(wave):
-                devices = ",".join(
-                    str(slot * args.gpus_per_job + offset)
-                    for offset in range(args.gpus_per_job)
-                )
-                run_dir = phase_dir / experiment.experiment_id
-                command = build_command(
-                    experiment,
-                    run_dir,
-                    args.epochs,
-                    args.gpus_per_job,
-                    args.dataroot,
-                    args.seed,
-                    args.master_port + slot,
-                    args.load_from_dsvt,
-                )
-                active_jobs.append(
-                    _start_job(
-                        experiment,
-                        slot,
-                        wave_number,
-                        devices,
-                        command,
-                        run_dir,
-                        args.phase,
-                        args.epochs,
-                        args.seed,
-                        revision,
-                    )
-                )
-            _monitor_wave(active_jobs)
-            for job in active_jobs:
-                all_completed = _finish_job(job) and all_completed
-            active_jobs = []
+        all_completed = _run_pool(pending, args, phase_dir)
     except KeyboardInterrupt:
-        for job in active_jobs:
-            if job.process is not None and job.process.poll() is None:
-                job.process.terminate()
-        for job in active_jobs:
-            if job.process is not None:
-                job.process.wait()
-            if job.log_handle is not None and not job.log_handle.closed:
-                job.log_handle.close()
         print("launcher interrupted; active jobs were terminated", file=sys.stderr)
         return 130
     return 0 if all_completed else 1

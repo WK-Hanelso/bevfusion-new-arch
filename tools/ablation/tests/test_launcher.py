@@ -1,6 +1,7 @@
 """CPU-only tests for the ablation registry and launcher planning."""
 
 import json
+import os
 from pathlib import Path
 import sys
 
@@ -13,7 +14,8 @@ from experiments import (  # noqa: E402
     EXPERIMENTS,
     LEGACY_CONFIG_ALIASES,
 )
-from launch_waves import build_command, main  # noqa: E402
+import launch_waves  # noqa: E402
+from launch_waves import build_command, main, make_gpu_groups  # noqa: E402
 
 
 def test_registry_is_bijective_and_keeps_legacy_aliases():
@@ -52,7 +54,7 @@ def test_screening_dry_run_plans_all_16_without_writing(tmp_path, capsys):
     )
     output = capsys.readouterr().out
     assert output.count("[PLAN]") == 16
-    assert "wave=4 slot=3 id=FINAL" in output
+    assert "wave=16 slot=3 id=FINAL" in output
     assert "gpus=6,7" in output
     assert "--nproc_per_node=2" in output
     assert "--max_epochs 6" in output
@@ -83,3 +85,124 @@ def test_resume_skips_only_completed_runs(tmp_path, capsys):
     assert "[SKIP] completed id=B0" in output
     assert output.count("[PLAN]") == 1
     assert "id=A1" in output
+
+
+def test_resume_skips_live_running_pid_and_requeues_stale_pid(tmp_path, capsys):
+    live = tmp_path / "screening" / "B0"
+    live.mkdir(parents=True)
+    (live / "metrics.json").write_text(json.dumps({"status": "running"}))
+    (live / "launcher.pid").write_text(f"{os.getpid()}\n")
+    stale = tmp_path / "screening" / "A1"
+    stale.mkdir(parents=True)
+    (stale / "metrics.json").write_text(json.dumps({"status": "running"}))
+    (stale / "launcher.pid").write_text("999999999\n")
+
+    assert (
+        main(
+            [
+                "--phase",
+                "screening",
+                "--ids",
+                "B0",
+                "A1",
+                "--resume",
+                "--dry-run",
+                "--runs-root",
+                str(tmp_path),
+            ]
+        )
+        == 0
+    )
+    output = capsys.readouterr().out
+    assert f"[SKIP] running id=B0 pid={os.getpid()}" in output
+    assert output.count("[PLAN]") == 1
+    assert "id=A1" in output
+
+
+def test_custom_gpu_list_is_split_into_three_groups():
+    assert make_gpu_groups("0,1,2,3,6,7", 2) == ("0,1", "2,3", "6,7")
+
+
+def test_custom_gpu_dry_run_uses_pool_plan_format(tmp_path, capsys):
+    assert (
+        main(
+            [
+                "--phase",
+                "screening",
+                "--ids",
+                "B0",
+                "A1",
+                "A2",
+                "A3",
+                "--gpus",
+                "0,1,2,3,6,7",
+                "--dry-run",
+                "--runs-root",
+                str(tmp_path),
+            ]
+        )
+        == 0
+    )
+    output = capsys.readouterr().out
+    assert "parallel=3" in output
+    assert "[PLAN] wave=1 slot=0 id=B0 bits=0000 gpus=0,1" in output
+    assert "[PLAN] wave=2 slot=1 id=A1 bits=1000 gpus=2,3" in output
+    assert "[PLAN] wave=3 slot=2 id=A2 bits=0100 gpus=6,7" in output
+    assert "[PLAN] wave=4 slot=0 id=A3 bits=0001 gpus=0,1" in output
+    assert output.count("[PLAN]") == 4
+    assert not list(tmp_path.iterdir())
+
+
+def test_failed_job_refills_its_slot_without_a_wave_barrier(
+    tmp_path, capsys, monkeypatch
+):
+    fake_runner = tmp_path / "fake_runner.py"
+    fake_runner.write_text(
+        """\
+import pathlib
+import sys
+import time
+
+experiment_id = sys.argv[1]
+run_dir = pathlib.Path(sys.argv[2])
+if experiment_id == "B0":
+    raise SystemExit(9)
+time.sleep(0.5)
+(run_dir / "configs.yaml").write_text("resolved: true\\n")
+"""
+    )
+
+    def fake_build_command(experiment, run_dir, *args, **kwargs):
+        return [sys.executable, str(fake_runner), experiment.experiment_id, str(run_dir)]
+
+    monkeypatch.setattr(launch_waves, "build_command", fake_build_command)
+    monkeypatch.setattr(launch_waves, "capture_phase_environment", lambda path: None)
+    monkeypatch.setattr(launch_waves, "git_revision", lambda: "test-revision")
+
+    result = main(
+        [
+            "--phase",
+            "screening",
+            "--ids",
+            "B0",
+            "A1",
+            "A2",
+            "A3",
+            "A4",
+            "--gpus",
+            "0,1,2,3,6,7",
+            "--runs-root",
+            str(tmp_path / "runs"),
+        ]
+    )
+    assert result == 1
+    output = capsys.readouterr().out
+    failed = output.index("[FAILED] wave=1 slot=0 id=B0")
+    refill = output.index("[START] slot=0 gpus=0,1 id=A3")
+    assert failed < refill
+    metrics = json.loads(
+        (tmp_path / "runs" / "screening" / "A3" / "metrics.json").read_text()
+    )
+    assert metrics["wave"] == 4
+    assert metrics["slot"] == 0
+    assert metrics["status"] == "completed"
