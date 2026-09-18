@@ -68,10 +68,38 @@ def _patch_yapf() -> None:
     mmcv_config.FormatCode = format_code
 
 
+def _patch_mmcv_get_stream() -> None:
+    """mmcv 1.x passes an int GPU id to ``torch.nn.parallel._functions._get_stream``.
+
+    torch >= 2.1 expects a ``torch.device`` there (``device.type``), which breaks
+    ``MMDistributedDataParallel.scatter`` with ``'int' object has no attribute
+    'type'``.  Wrap ints into ``torch.device`` for mmcv's copy of the symbol.
+    """
+
+    try:
+        import mmcv.parallel._functions as mmcv_functions
+        from torch.nn.parallel import _functions as torch_functions
+    except ImportError:
+        return
+
+    original = torch_functions._get_stream
+    if getattr(mmcv_functions._get_stream, "_device_patched", False):
+        return
+
+    def get_stream(device):
+        if isinstance(device, int):
+            device = torch.device("cuda", device)
+        return original(device)
+
+    get_stream._device_patched = True
+    mmcv_functions._get_stream = get_stream
+
+
 def main() -> None:
     dist.init = _init_from_torchrun_env
     context.init = _init_from_torchrun_env
     _patch_yapf()
+    _patch_mmcv_get_stream()
 
     entry = os.path.join(os.path.dirname(os.path.abspath(__file__)), "train.py")
     sys.argv = [entry] + sys.argv[1:]
