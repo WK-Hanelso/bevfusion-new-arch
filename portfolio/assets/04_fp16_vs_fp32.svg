@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
+  "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" width="1296pt" height="540pt" viewBox="0 0 1296 540" xmlns="http://www.w3.org/2000/svg" version="1.1">
+ <metadata>
+  <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+   <cc:Work>
+    <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
+    <dc:date>2026-09-19T05:13:46.164827</dc:date>
+    <dc:format>image/svg+xml</dc:format>
+    <dc:creator>
+     <cc:Agent>
+      <dc:title>Matplotlib v3.9.4, https://matplotlib.org/</dc:title>
+     </cc:Agent>
+    </dc:creator>
+   </cc:Work>
+  </rdf:RDF>
+ </metadata>
+ <defs>
+  <style type="text/css">*{stroke-linejoin: round; stroke-linecap: butt}</style>
+ </defs>
+ <g id="figure_1">
+  <g id="patch_1">
+   <path d="M 0 540 
+L 1296 540 
+L 1296 0 
+L 0 0 
+z
+" style="fill: #ffffff"/>
+  </g>
+  <g id="axes_1">
+   <g id="table_1">
+    <g id="patch_2">
+     <path d="M 192.132 244.98 
+L 327.008571 244.98 
+L 327.008571 172.908 
+L 192.132 172.908 
+z
+" style="fill: #17324d; stroke: #ffffff; stroke-width: 4; stroke-linejoin: miter"/>
+    </g>
+    <g id="text_1">
+     <text style="fill: #ffffff; font: 700 17px 'DejaVu Sans'; text-anchor: start" x="209.665954" y="213.634938" transform="rotate(-0 209.665954 213.634938)">Precision</text>
+    </g>
+    <g id="patch_3">
+     <path d="M 327.008571 244.98 
+L 808.710612 244.98 
+L 808.710612 172.908 
+L 327.008571 172.908 
+z
+" style="fill: #17324d; stroke: #ffffff; stroke-width: 4; stroke-linejoin: miter"/>
+    </g>
+    <g id="text_2">
+     <text style="fill: #ffffff; font: 700 17px 'DejaVu Sans'; text-anchor: start" x="389.629837" y="213.634938" transform="rotate(-0 389.629837 213.634938)">Outcome</text>
+    </g>
+    <g id="patch_4">
+     <path d="M 808.710612 244.98 
+L 972.489306 244.98 
+L 972.489306 172.908 
+L 808.710612 172.908 
+z
+" style="fill: #17324d; stroke: #ffffff; stroke-width: 4; stroke-linejoin: miter"/>
+    </g>
+    <g id="text_3">
+     <text style="fill: #ffffff; font: 700 17px 'DejaVu Sans'; text-anchor: start" x="830.001842" y="213.568531" transform="rotate(-0 830.001842 213.568531)">Throughput</text>
+    </g>
+    <g id="patch_5">
+     <path d="M 972.489306 244.98 
+L 1136.268 244.98 
+L 1136.268 172.908 
+L 972.489306 172.908 
+z
+" style="fill: #17324d; stroke: #ffffff; stroke-width: 4; stroke-linejoin: miter"/>
+    </g>
+    <g id="text_4">
+     <text style="fill: #ffffff; font: 700 17px 'DejaVu Sans'; text-anchor: start" x="993.780536" y="213.502125" transform="rotate(-0 993.780536 213.502125)">GPU memory</text>
+    </g>
+    <g id="patch_6">
+     <path d="M 192.132 317.052 
+L 327.008571 317.052 
+L 327.008571 244.98 
+L 192.132 244.98 
+z
+" style="fill: #fff0e6; stroke: #ffffff; stroke-width: 4; stroke-linejoin: miter"/>
+    </g>
+    <g id="text_5">
+     <text style="fill: #e97932; font: 700 17px 'DejaVu Sans'; text-anchor: start" x="209.665954" y="285.706937" transform="rotate(-0 209.665954 285.706937)">FP16</text>
+    </g>
+    <g id="patch_7">
+     <path d="M 327.008571 317.052 
+L 808.710612 317.052 
+L 808.710612 244.98 
+L 327.008571 244.98 
+z
+" style="fill: #fff0e6; stroke: #ffffff; stroke-width: 4; stroke-linejoin: miter"/>
+    </g>
+    <g id="text_6">
+     <text style="fill: #17324d; font: 17px 'DejaVu Sans'" transform="translate(389.629837 276.188797)">NaN death at epoch 2, LR 9.2e-4</text>
+     <text style="fill: #17324d; font: 17px 'DejaVu Sans'" transform="translate(389.629837 295.225078)">(Hungarian assigner: matrix contains invalid numeric entries)</text>
+    </g>
+    <g id="patch_8">
+     <path d="M 808.710612 317.052 
+L 972.489306 317.052 
+L 972.489306 244.98 
+L 808.710612 244.98 
+z
+" style="fill: #fff0e6; stroke: #ffffff; stroke-width: 4; stroke-linejoin: miter"/>
+    </g>
+    <g id="text_7">
+     <text style="fill: #17324d; font: 17px 'DejaVu Sans'; text-anchor: start" x="830.001842" y="285.706937" transform="rotate(-0 830.001842 285.706937)">0.60 s/iter</text>
+    </g>
+    <g id="patch_9">
+     <path d="M 972.489306 317.052 
+L 1136.268 317.052 
+L 1136.268 244.98 
+L 972.489306 244.98 
+z
+" style="fill: #fff0e6; stroke: #ffffff; stroke-width: 4; stroke-linejoin: miter"/>
+    </g>
+    <g id="text_8">
+     <text style="fill: #17324d; font: 17px 'DejaVu Sans'; text-anchor: start" x="993.780536" y="285.706937" transform="rotate(-0 993.780536 285.706937)">12 GB</text>
+    </g>
+    <g id="patch_10">
+     <path d="M 192.132 389.124 
+L 327.008571 389.124 
+L 327.008571 317.052 
+L 192.132 317.052 
+z
+" style="fill: #e7f7f7; stroke: #ffffff; stroke-width: 4; stroke-linejoin: miter"/>
+    </g>
+    <g id="text_9">
+     <text style="fill: #0e8a72; font: 700 17px 'DejaVu Sans'; text-anchor: start" x="209.665954" y="357.778937" transform="rotate(-0 209.665954 357.778937)">FP32</text>
+    </g>
+    <g id="patch_11">
+     <path d="M 327.008571 389.124 
+L 808.710612 389.124 
+L 808.710612 317.052 
+L 327.008571 317.052 
+z
+" style="fill: #e7f7f7; stroke: #ffffff; stroke-width: 4; stroke-linejoin: miter"/>
+    </g>
+    <g id="text_10">
+     <text style="fill: #17324d; font: 17px 'DejaVu Sans'; text-anchor: start" x="389.629837" y="357.778937" transform="rotate(-0 389.629837 357.778937)">20 epochs completed incl. LR peak 1e-3</text>
+    </g>
+    <g id="patch_12">
+     <path d="M 808.710612 389.124 
+L 972.489306 389.124 
+L 972.489306 317.052 
+L 808.710612 317.052 
+z
+" style="fill: #e7f7f7; stroke: #ffffff; stroke-width: 4; stroke-linejoin: miter"/>
+    </g>
+    <g id="text_11">
+     <text style="fill: #17324d; font: 17px 'DejaVu Sans'; text-anchor: start" x="830.001842" y="357.778937" transform="rotate(-0 830.001842 357.778937)">0.86 s/iter</text>
+    </g>
+    <g id="patch_13">
+     <path d="M 972.489306 389.124 
+L 1136.268 389.124 
+L 1136.268 317.052 
+L 972.489306 317.052 
+z
+" style="fill: #e7f7f7; stroke: #ffffff; stroke-width: 4; stroke-linejoin: miter"/>
+    </g>
+    <g id="text_12">
+     <text style="fill: #17324d; font: 17px 'DejaVu Sans'; text-anchor: start" x="993.780536" y="357.778937" transform="rotate(-0 993.780536 357.778937)">19 GB</text>
+    </g>
+   </g>
+   <g id="text_13">
+    <text style="fill: #17324d; font: 700 29px 'DejaVu Sans'; text-anchor: start" x="192.132" y="98.064" transform="rotate(-0 192.132 98.064)">FP16 Instability vs FP32 Completion</text>
+   </g>
+   <g id="text_14">
+    <text style="fill: #6b7785; font: 17px 'DejaVu Sans'; text-anchor: start" x="192.132" y="129.249" transform="rotate(-0 192.132 129.249)">The faster, smaller FP16 run failed near the cyclic learning-rate peak.</text>
+   </g>
+   <g id="text_15">
+    <text style="fill: #17324d; font: 700 16px 'DejaVu Sans'; text-anchor: start" x="192.132" y="439.02" transform="rotate(-0 192.132 439.02)">Decision: use FP32 for schedule completion; no new run was performed for this portfolio.</text>
+   </g>
+  </g>
+ </g>
+</svg>
