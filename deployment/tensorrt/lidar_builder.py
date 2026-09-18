@@ -7,6 +7,10 @@ from pathlib import Path
 from typing import Any, Dict, Mapping, Sequence, Tuple
 
 import numpy as np
+
+# TensorRT 8.5 python bindings still reference np.bool, removed in numpy 1.24.
+if not hasattr(np, "bool"):  # pragma: no cover - environment shim
+    np.bool = bool
 import onnx
 from onnx import compose
 
@@ -17,6 +21,7 @@ from deployment.tensorrt.builder import (
     require_file,
     sha256_file,
     tensorrt_major,
+    tensorrt_version,
 )
 BACKBONE_INPUTS = (
     "src",
@@ -28,6 +33,16 @@ BACKBONE_INPUTS = (
     "gather_shift_1",
     "position_embeddings",
 )
+BACKBONE_INPUT_DTYPES = {
+    "src": "float32",
+    "set_indices_shift_0": "int32",
+    "set_indices_shift_1": "int32",
+    "set_masks_shift_0": "int32",
+    "set_masks_shift_1": "int32",
+    "gather_shift_0": "int32",
+    "gather_shift_1": "int32",
+    "position_embeddings": "float32",
+}
 
 
 def load_lidar_artifacts(directory: Path, allow_random_init: bool):
@@ -138,6 +153,30 @@ def replace_tensor(network, old, new) -> None:
     network.remove_tensor(old)
 
 
+def validate_backbone_connections(trt, old_inputs, frontend, manifest) -> None:
+    manifest_inputs = manifest.get("artifacts", {}).get("backbone", {}).get("inputs")
+    if not isinstance(manifest_inputs, dict):
+        raise ValueError("LiDAR manifest is missing backbone input contracts")
+    for name, dtype_name in BACKBONE_INPUT_DTYPES.items():
+        expected = getattr(trt, dtype_name)
+        manifest_spec = manifest_inputs.get(name)
+        if not isinstance(manifest_spec, dict) or manifest_spec.get("dtype") != dtype_name:
+            raise ValueError(
+                f"invalid backbone manifest dtype for {name}: "
+                f"expected={dtype_name}, actual={manifest_spec}"
+            )
+        if old_inputs[name].dtype != expected:
+            raise ValueError(
+                f"ONNX backbone input dtype mismatch for {name}: "
+                f"expected={expected}, actual={old_inputs[name].dtype}"
+            )
+        if frontend[name].dtype != expected:
+            raise ValueError(
+                f"plugin/frontend dtype mismatch for {name}: "
+                f"expected={expected}, actual={frontend[name].dtype}"
+            )
+
+
 def _get_plugin_creator(registry, name, version):
     if hasattr(registry, "get_creator"):
         return registry.get_creator(name, version, "")
@@ -162,6 +201,50 @@ def add_plugin(trt, network, inputs, plugin):
     if tensorrt_major(trt) >= 10:
         return network.add_plugin_v3(inputs, [], plugin)
     return network.add_plugin_v2(inputs, plugin)
+
+
+def _cast(network, tensor, dtype, weight_store=None):
+    import tensorrt as trt
+
+    if tensorrt_version(trt) >= (8, 6):
+        return network.add_cast(tensor, dtype).get_output(0)
+
+    source_dtype = tensor.dtype
+    if source_dtype == dtype:
+        return tensor
+
+    constant_shape = (1,) * len(tensor.shape)
+
+    def constant(value, constant_dtype):
+        array = np.full(
+            constant_shape, value, dtype=np.dtype(trt.nptype(constant_dtype))
+        )
+        if weight_store is not None:
+            weight_store.append(array)
+        return network.add_constant(constant_shape, array).get_output(0)
+
+    if source_dtype == trt.bool:
+        one = constant(1, dtype)
+        zero = constant(0, dtype)
+        return network.add_select(tensor, one, zero).get_output(0)
+
+    if dtype == trt.bool:
+        zero = constant(0, source_dtype)
+        positive = network.add_elementwise(
+            tensor, zero, trt.ElementWiseOperation.GREATER
+        ).get_output(0)
+        negative = network.add_elementwise(
+            tensor, zero, trt.ElementWiseOperation.LESS
+        ).get_output(0)
+        return network.add_elementwise(
+            positive, negative, trt.ElementWiseOperation.OR
+        ).get_output(0)
+
+    layer = network.add_identity(tensor)
+    layer.set_output_type(0, dtype)
+    output = layer.get_output(0)
+    output.dtype = dtype
+    return output
 
 
 def add_linear_bn_relu(trt, network, tensor, weights, prefix, weight_store):
@@ -282,7 +365,7 @@ def add_frontend(trt, builder, network, registry, weights, capacity, point_profi
     valid = network.add_elementwise(
         inverse, minus_one, trt.ElementWiseOperation.GREATER
     ).get_output(0)
-    valid_float = network.add_cast(valid, trt.float32).get_output(0)
+    valid_float = _cast(network, valid, trt.float32, weight_store)
     valid_column = network.add_shuffle(valid_float)
     valid_column.reshape_dims = (-1, 1)
 
@@ -399,18 +482,22 @@ def add_capacity_status(trt, network, pillar_count, set_counts, max_pillars, wei
     weight_store.extend((maximum, zero))
     maximum_tensor = network.add_constant((1,), maximum).get_output(0)
     zero_tensor = network.add_constant((1,), zero).get_output(0)
-    pillar_overflow = network.add_cast(
+    pillar_overflow = _cast(
+        network,
         network.add_elementwise(
             pillar_count, maximum_tensor, trt.ElementWiseOperation.GREATER
         ).get_output(0),
         trt.int32,
-    ).get_output(0)
-    set_overflow = network.add_cast(
+        weight_store,
+    )
+    set_overflow = _cast(
+        network,
         network.add_elementwise(
             set_counts, zero_tensor, trt.ElementWiseOperation.LESS
         ).get_output(0),
         trt.int32,
-    ).get_output(0)
+        weight_store,
+    )
     any_set_overflow = network.add_reduce(
         set_overflow, trt.ReduceOperation.MAX, 1, True
     ).get_output(0)
@@ -502,6 +589,7 @@ def build_raw_lidar_engine(
         point_profile,
         weight_store,
     )
+    validate_backbone_connections(trt, old_inputs, frontend, artifact_manifest)
     for name, old in old_inputs.items():
         replace_tensor(network, old, frontend[name])
     dense = add_plugin(

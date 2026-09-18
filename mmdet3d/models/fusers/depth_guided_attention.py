@@ -26,7 +26,10 @@ class ContinuousPositionBias(nn.Module):
         )
         relative = query_grid[:, :, None] - sampled_grid[:, None]
         relative = torch.sign(relative) * torch.log(relative.abs() + 1.0)
-        bias = self.mlp(relative).squeeze(-1)
+        # The final Linear has one output by construction.  Static indexing
+        # avoids the dynamic Squeeze lowering (Shape/Gather/Equal/If) emitted
+        # by torch.onnx, which TensorRT 8.5 cannot parse for this graph.
+        bias = self.mlp(relative)[..., 0]
         return bias.reshape(
             batch_size, self.num_heads, query_grid.shape[1], sampled_grid.shape[1]
         )
@@ -105,13 +108,17 @@ class DepthGuidedDeformableAttention2D(nn.Module):
 
     def forward(self, lidar_query, camera_key_value, depth_encoding):
         batch, channels, height, width = lidar_query.shape
-        if camera_key_value.shape != lidar_query.shape:
+        if (
+            not torch.onnx.is_in_onnx_export()
+            and camera_key_value.shape != lidar_query.shape
+        ):
             raise ValueError(
                 "query/key-value shapes must match, got "
                 f"{tuple(lidar_query.shape)} and {tuple(camera_key_value.shape)}"
             )
-        if depth_encoding.shape != lidar_query.shape:
-            depth_encoding = depth_encoding.expand_as(lidar_query)
+        # expand_as is also a no-op view when all dimensions already match,
+        # so no shape-dependent branch is needed in the exported graph.
+        depth_encoding = depth_encoding.expand_as(lidar_query)
 
         query = self.to_query(lidar_query) * self.to_depth(depth_encoding)
         grouped_query = query.reshape(

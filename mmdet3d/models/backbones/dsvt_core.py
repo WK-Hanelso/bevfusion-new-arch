@@ -385,18 +385,59 @@ class SetAttention(nn.Module):
 
         set_features = features[indices]
         set_pos = pos[indices]
-        attended = self.attention(
-            set_features + set_pos,
-            set_features + set_pos,
-            set_features,
-            key_padding_mask=mask,
-            need_weights=False,
-        )[0]
+        if torch.onnx.is_in_onnx_export():
+            attended = self._export_attention(set_features, set_pos, mask)
+        else:
+            attended = self.attention(
+                set_features + set_pos,
+                set_features + set_pos,
+                set_features,
+                key_padding_mask=mask,
+                need_weights=False,
+            )[0]
         attended = attended.reshape(-1, self.channels)[gather]
-        if attended.shape != features.shape:
+        if (
+            not torch.onnx.is_in_onnx_export()
+            and attended.shape != features.shape
+        ):
             raise RuntimeError("DSVT set partition failed to map every pillar exactly once")
         features = self.norm1(features + attended)
         return self.norm2(features + self.linear2(self.activation(self.linear1(features))))
+
+    def _export_attention(
+        self, set_features: Tensor, set_pos: Tensor, mask: Tensor
+    ) -> Tensor:
+        """Export MHA without the bool casts emitted for key_padding_mask."""
+
+        query_key = set_features + set_pos
+        weight_q, weight_k, weight_v = self.attention.in_proj_weight.chunk(3)
+        if self.attention.in_proj_bias is None:
+            bias_q = bias_k = bias_v = None
+        else:
+            bias_q, bias_k, bias_v = self.attention.in_proj_bias.chunk(3)
+        query = nn.functional.linear(query_key, weight_q, bias_q)
+        key = nn.functional.linear(query_key, weight_k, bias_k)
+        value = nn.functional.linear(set_features, weight_v, bias_v)
+
+        batch, tokens, _ = query.shape
+        heads = self.attention.num_heads
+        head_channels = self.channels // heads
+        query = query.view(batch, tokens, heads, head_channels).transpose(1, 2)
+        key = key.view(batch, tokens, heads, head_channels).transpose(1, 2)
+        value = value.view(batch, tokens, heads, head_channels).transpose(1, 2)
+        query = query * (head_channels ** -0.5)
+        scores = torch.matmul(query, key.transpose(-2, -1))
+        # Arithmetic masking instead of where/-inf: avoids Cast(to=BOOL) (unsupported
+        # by TensorRT 8.5) and the constant-folded full_like tensor (1 GB ONNX bloat).
+        # mask is int32 {0,1}; Cast int->float is supported by TensorRT 8.5.
+        padding = mask[:, None, None, :].to(scores.dtype)
+        scores = scores + padding * -10000.0
+        probabilities = torch.softmax(scores, dim=-1)
+        attended = torch.matmul(probabilities, value)
+        attended = attended.transpose(1, 2).contiguous().view(
+            batch, tokens, self.channels
+        )
+        return self.attention.out_proj(attended)
 
     def forward(self, features: Tensor, indices: Tensor, mask: Tensor, pos: Tensor) -> Tensor:
         gather = (

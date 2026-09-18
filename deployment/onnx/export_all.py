@@ -31,6 +31,8 @@ def run_export(script, output, args, reference_name):
         command.extend(("--checkpoint", str(args.checkpoint)))
     if args.allow_random_init:
         command.append("--allow-random-init")
+    if args.allow_cpu_only:
+        command.append("--allow-cpu-only")
     if args.reference_dir is not None:
         command.extend(
             ("--reference-dir", str(args.reference_dir / reference_name))
@@ -67,6 +69,8 @@ def run_lidar_trt_artifact_export(args):
         command.extend(("--checkpoint", str(args.checkpoint)))
     if args.allow_random_init:
         command.append("--allow-random-init")
+    if args.allow_cpu_only:
+        command.append("--allow-cpu-only")
     subprocess.run(command, check=True)
 
 
@@ -84,6 +88,7 @@ def main():
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--opset", type=int, default=16)
     parser.add_argument("--device", default="cuda:0")
+    parser.add_argument("--allow-cpu-only", action="store_true")
     args = parser.parse_args()
 
     if args.checkpoint is None and not args.allow_random_init:

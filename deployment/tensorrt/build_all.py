@@ -4,6 +4,7 @@
 import argparse
 import json
 import sys
+import traceback
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -37,7 +38,7 @@ def model_identity(model):
 
 def validate_export_bundle(
     onnx_dir: Path, lidar_artifact_dir: Path, allow_random_init: bool
-) -> None:
+):
     manifests = []
     for name in ("camera_bev", "fusion_dal"):
         _, manifest_path = static_artifact_paths(onnx_dir, name)
@@ -66,9 +67,10 @@ def validate_export_bundle(
             "camera, raw-LiDAR and fusion artifacts do not share one model "
             f"identity: {identities}"
         )
+    return manifests[0]["model"]
 
 
-def main() -> None:
+def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--onnx-dir", type=Path, required=True)
     parser.add_argument("--lidar-artifact-dir", type=Path)
@@ -84,7 +86,7 @@ def main() -> None:
     parser.add_argument("--optimization-level", type=int, default=3)
     parser.add_argument("--max-aux-streams", type=int, default=0)
     parser.add_argument("--allow-random-init", action="store_true")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     onnx_dir = args.onnx_dir.expanduser().resolve()
     lidar_artifact_dir = (
@@ -94,9 +96,10 @@ def main() -> None:
     )
     plugin_dir = args.plugin_dir.expanduser().resolve()
     engine_dir = args.engine_dir.expanduser().resolve()
-    validate_export_bundle(
+    model = validate_export_bundle(
         onnx_dir, lidar_artifact_dir, args.allow_random_init
     )
+    engine_dir.mkdir(parents=True, exist_ok=True)
     timing_cache = (
         args.timing_cache.expanduser().resolve()
         if args.timing_cache is not None
@@ -113,52 +116,64 @@ def main() -> None:
     )
 
     built = {}
+    failures = {}
     camera_onnx, camera_export_manifest = static_artifact_paths(
         onnx_dir, "camera_bev"
     )
     camera_build_manifest = (
         engine_dir / f"camera_bev_{args.precision}.manifest.json"
     )
-    built["camera_bev"] = build_engine(
-        "camera_bev",
-        camera_onnx,
-        camera_export_manifest,
-        engine_dir / f"camera_bev_{args.precision}.engine",
-        camera_build_manifest,
-        options,
-    )
-    print(
-        f"PASS camera_bev sha256={built['camera_bev']['engine_sha256']}"
-    )
-
     lidar_build_manifest = (
         engine_dir / f"dsvt_lidar_{args.precision}.manifest.json"
     )
-    built["lidar_raw"] = build_raw_lidar_engine(
-        lidar_artifact_dir,
-        plugin_dir,
-        engine_dir / f"dsvt_lidar_{args.precision}.engine",
-        lidar_build_manifest,
-        (args.point_min, args.point_opt, args.point_max),
-        options,
-    )
-    print(f"PASS lidar_raw sha256={built['lidar_raw']['engine_sha256']}")
-
     onnx_path, export_manifest = static_artifact_paths(onnx_dir, "fusion_dal")
     fusion_build_manifest = (
         engine_dir / f"fusion_dal_{args.precision}.manifest.json"
     )
-    built["fusion_dal"] = build_engine(
-        "fusion_dal",
-        onnx_path,
-        export_manifest,
-        engine_dir / f"fusion_dal_{args.precision}.engine",
-        fusion_build_manifest,
-        options,
+    build_steps = (
+        (
+            "camera_bev",
+            lambda: build_engine(
+                "camera_bev",
+                camera_onnx,
+                camera_export_manifest,
+                engine_dir / f"camera_bev_{args.precision}.engine",
+                camera_build_manifest,
+                options,
+            ),
+        ),
+        (
+            "lidar_raw",
+            lambda: build_raw_lidar_engine(
+                lidar_artifact_dir,
+                plugin_dir,
+                engine_dir / f"dsvt_lidar_{args.precision}.engine",
+                lidar_build_manifest,
+                (args.point_min, args.point_opt, args.point_max),
+                options,
+            ),
+        ),
+        (
+            "fusion_dal",
+            lambda: build_engine(
+                "fusion_dal",
+                onnx_path,
+                export_manifest,
+                engine_dir / f"fusion_dal_{args.precision}.engine",
+                fusion_build_manifest,
+                options,
+            ),
+        ),
     )
-    print(
-        f"PASS fusion_dal sha256={built['fusion_dal']['engine_sha256']}"
-    )
+    for name, build in build_steps:
+        try:
+            built[name] = build()
+        except Exception as error:
+            failures[name] = f"{type(error).__name__}: {error}"
+            print(f"FAIL {name}: {failures[name]}", file=sys.stderr)
+            traceback.print_exc()
+        else:
+            print(f"PASS {name} sha256={built[name]['engine_sha256']}")
 
     manifest_paths = {
         "camera_bev": camera_build_manifest,
@@ -168,7 +183,7 @@ def main() -> None:
     bundle_manifest = {
         "schema_version": 2,
         "precision": args.precision,
-        "model": built["camera_bev"]["model"],
+        "model": model,
         "public_abi": {
             "camera": {
                 "inputs": ["images", "geometry"],
@@ -190,15 +205,26 @@ def main() -> None:
                 "build_manifest": str(manifest_paths[name]),
                 "build_manifest_sha256": sha256_file(manifest_paths[name]),
             }
-            for name in ("camera_bev", "lidar_raw", "fusion_dal")
+            for name in built
         },
     }
     bundle_path = engine_dir / f"bundle_{args.precision}.manifest.json"
     bundle_path.write_text(
         json.dumps(bundle_manifest, indent=2, sort_keys=True) + "\n"
     )
-    print(f"PASS bundle_manifest={bundle_path}")
+    print(
+        f"WROTE bundle_manifest={bundle_path} "
+        f"engines={','.join(built) or 'none'}"
+    )
+    if failures:
+        print(
+            "FAIL engine builds: "
+            + ", ".join(f"{name} ({failure})" for name, failure in failures.items()),
+            file=sys.stderr,
+        )
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

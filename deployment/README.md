@@ -96,6 +96,7 @@ python deployment/onnx/export_all.py \
 Checkpoint가 없으면 production export를 거부한다. 현재 config와 구조가 일치하는 전체 checkpoint를 사용해야 한다. Exporter는 model 생성 전에 config의 외부 `Pretrained` 초기화를 비활성화하고 곧바로 지정한 PTH를 복원하므로 인터넷이나 별도 ResNet weight download가 필요 없다. 이전 PTH의 비학습 buffer `encoders.camera.vtransform.depth_values`가 있으면 현재 config 값과 일치하는지 확인한 뒤에만 제거하며, 그 밖의 누락·추가·shape 불일치는 strict load에서 실패한다.
 
 변환 코드의 구조만 확인할 때는 `--allow-random-init`을 명시해야 하며 이 artifact는 production build에서도 기본적으로 거부된다.
+CUDA를 사용할 수 없는 진단 환경에서는 `--device cpu --allow-cpu-only`로 export하며, manifest의 model provenance에 `export_device`와 `cpu_only: true`가 기록된다.
 
 생성 구조:
 

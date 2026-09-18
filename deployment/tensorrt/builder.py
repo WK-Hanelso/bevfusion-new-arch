@@ -45,11 +45,16 @@ def require_file(path: Path, label: str) -> Path:
     return resolved
 
 
-def tensorrt_major(trt) -> int:
+def tensorrt_version(trt) -> Tuple[int, int]:
     try:
-        return int(str(trt.__version__).split(".", 1)[0])
-    except (AttributeError, TypeError, ValueError) as error:
-        raise RuntimeError("unable to determine the TensorRT major version") from error
+        parts = str(trt.__version__).split(".")
+        return int(parts[0]), int(parts[1])
+    except (AttributeError, IndexError, TypeError, ValueError) as error:
+        raise RuntimeError("unable to determine the TensorRT version") from error
+
+
+def tensorrt_major(trt) -> int:
+    return tensorrt_version(trt)[0]
 
 
 def configure_versioned_builder_options(trt, config, options: BuildOptions) -> None:

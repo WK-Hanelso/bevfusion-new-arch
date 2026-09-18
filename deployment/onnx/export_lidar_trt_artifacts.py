@@ -11,10 +11,12 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 import numpy as np
+import onnx
 import torch
 from torch import nn
 
 from deployment.onnx import dsvt_backbone as dsvt_export
+from deployment.onnx.export_device import require_export_device
 from deployment.onnx.model_contract import (
     DEFAULT_CONFIG,
     LIDAR_BEV_SHAPE,
@@ -64,8 +66,8 @@ class PaddedDSVTBackbone(nn.Module):
             src,
             indices0.long(),
             indices1.long(),
-            masks0.bool(),
-            masks1.bool(),
+            masks0,
+            masks1,
             gather0.long(),
             gather1.long(),
             positions,
@@ -236,9 +238,9 @@ def main():
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--opset", type=int, default=16)
     parser.add_argument("--device", default="cuda:0")
+    parser.add_argument("--allow-cpu-only", action="store_true")
     args = parser.parse_args()
-    if not torch.cuda.is_available():
-        raise RuntimeError("CUDA is required for this deployment export")
+    export_provenance = require_export_device(args.device, args.allow_cpu_only)
     export_opset = prepare_onnx_export(args.opset)
 
     model, _, provenance = load_deployment_model(
@@ -247,6 +249,7 @@ def main():
         args.allow_random_init,
         args.seed,
     )
+    provenance.update(export_provenance)
     encoder = model.encoders["lidar"]["backbone"]
     validate_encoder_contract(
         encoder, args.max_points, args.max_pillars, args.max_sets
@@ -307,6 +310,18 @@ def main():
 
     backbone_graph = load_and_check_onnx(backbone_path, args.opset)
     neck_graph = load_and_check_onnx(neck_path, args.opset)
+    bool_casts = [
+        node.name
+        for node in backbone_graph.graph.node
+        if node.op_type == "Cast"
+        and any(
+            attribute.name == "to"
+            and attribute.i == onnx.TensorProto.BOOL
+            for attribute in node.attribute
+        )
+    ]
+    if bool_casts:
+        raise RuntimeError(f"padded backbone contains Cast(to=BOOL): {bool_casts}")
     np.savez(weights_path, **frontend_weights(encoder))
     manifest = {
         "schema_version": 1,
@@ -340,6 +355,14 @@ def main():
                 "file": backbone_path.name,
                 "sha256": sha256_file(backbone_path),
                 "nodes": len(backbone_graph.graph.node),
+                "inputs": {
+                    name: {
+                        "dtype": str(tensor.dtype).replace("torch.", ""),
+                        "shape": list(tensor.shape),
+                    }
+                    for name, tensor in zip(INPUT_NAMES, padded)
+                },
+                "cast_to_bool_nodes": 0,
             },
             "neck": {
                 "file": neck_path.name,

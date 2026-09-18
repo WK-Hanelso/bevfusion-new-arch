@@ -15,6 +15,7 @@ import torch
 from torch import nn
 from torch.onnx.utils import ONNXCheckerError
 
+from deployment.onnx.export_device import require_export_device
 from deployment.onnx.model_contract import (
     CAMERA_BEV_SHAPE,
     DEFAULT_CONFIG,
@@ -93,14 +94,15 @@ def main():
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--opset", type=int, default=16)
     parser.add_argument("--device", default="cuda:0")
+    parser.add_argument("--allow-cpu-only", action="store_true")
     args = parser.parse_args()
-    if not torch.cuda.is_available():
-        raise RuntimeError("CUDA is required for this deployment export")
+    export_provenance = require_export_device(args.device, args.allow_cpu_only)
     export_opset = prepare_onnx_export(args.opset)
 
     complete_model, _, provenance = load_deployment_model(
         args.config, args.checkpoint, args.allow_random_init, args.seed
     )
+    provenance.update(export_provenance)
     device = torch.device(args.device)
     model = FusionDALDeployWrapper(complete_model).to(device).eval()
     camera_bev = torch.randn(*CAMERA_BEV_SHAPE, device=device)

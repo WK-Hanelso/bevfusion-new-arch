@@ -108,9 +108,9 @@ class DALDecoupledHead(TransFusionHead):
             stride=1,
             padding=padding,
         )
-        if self.test_cfg["dataset"] == "nuScenes" and heatmap.shape[1] > 8:
+        if self.test_cfg["dataset"] == "nuScenes" and self.num_classes > 8:
             local_max[:, 8:10] = heatmap[:, 8:10]
-        elif self.test_cfg["dataset"] == "Waymo" and heatmap.shape[1] > 2:
+        elif self.test_cfg["dataset"] == "Waymo" and self.num_classes > 2:
             local_max[:, 1:3] = heatmap[:, 1:3]
         heatmap = heatmap * (heatmap == local_max)
         heatmap = heatmap.reshape(batch_size, heatmap.shape[1], -1)
@@ -130,7 +130,10 @@ class DALDecoupledHead(TransFusionHead):
         )
 
     def forward_single(self, fused_inputs, lidar_bev, metas):
-        if fused_inputs.shape[-2:] != lidar_bev.shape[-2:]:
+        if (
+            not torch.onnx.is_in_onnx_export()
+            and fused_inputs.shape[-2:] != lidar_bev.shape[-2:]
+        ):
             raise ValueError(
                 "fused/LiDAR feature grids differ: "
                 f"{tuple(fused_inputs.shape[-2:])} vs {tuple(lidar_bev.shape[-2:])}"

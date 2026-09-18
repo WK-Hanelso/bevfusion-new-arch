@@ -246,7 +246,7 @@ class TransFusionHead(nn.Module):
         local_max[:, :, padding:(-padding), padding:(-padding)] = local_max_inner
         ## for Pedestrian & Traffic_cone in nuScenes
         if self.test_cfg["dataset"] == "nuScenes":
-            if heatmap.shape[1] > 8:
+            if self.num_classes > 8:
                 local_max[
                     :,
                     8,

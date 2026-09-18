@@ -3,18 +3,24 @@
 
 import argparse
 import importlib.util
+import sys
 from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 import numpy as np
 import onnx
 import torch
 from torch import nn
 
+from deployment.onnx.export_device import require_export_device
+
 
 def load_dsvt_core():
     path = (
-        Path(__file__).resolve().parents[2]
-        / "mmdet3d/models/backbones/dsvt_core.py"
+        REPO_ROOT / "mmdet3d/models/backbones/dsvt_core.py"
     )
     spec = importlib.util.spec_from_file_location("dsvt_core_deploy", path)
     module = importlib.util.module_from_spec(spec)
@@ -52,6 +58,8 @@ class DSVTDeployWrapper(nn.Module):
         output = src
         indices = (set_indices_shift_0, set_indices_shift_1)
         masks = (set_masks_shift_0, set_masks_shift_1)
+        if not torch.onnx.is_in_onnx_export():
+            masks = tuple(mask.to(torch.bool) for mask in masks)
         gathers = (gather_shift_0, gather_shift_1)
         for block_id, (block, norm) in enumerate(
             zip(self.blocks, self.residual_norms)
@@ -88,6 +96,7 @@ def make_inputs(backbone, pillars, device):
     ).int()
     src = torch.randn(pillars, 128, device=device)
     _, indices, masks, positions = backbone.input_layer(src, coords)
+    masks = [mask.to(torch.int32) for mask in masks]
     gather_fn = (
         DSVT_CORE.official_occurrence_gather
         if backbone.official_layout
@@ -131,9 +140,9 @@ def main():
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--opset", type=int, default=16)
     parser.add_argument("--device", default="cuda:0")
+    parser.add_argument("--allow-cpu-only", action="store_true")
     args = parser.parse_args()
-    if not torch.cuda.is_available():
-        raise RuntimeError("CUDA is required for this deployment export")
+    require_export_device(args.device, args.allow_cpu_only)
 
     torch.manual_seed(args.seed)
     device = torch.device(args.device)
@@ -185,6 +194,17 @@ def main():
         )
     graph = onnx.load(str(args.output))
     onnx.checker.check_model(graph)
+    bool_casts = [
+        node.name
+        for node in graph.graph.node
+        if node.op_type == "Cast"
+        and any(
+            attribute.name == "to" and attribute.i == onnx.TensorProto.BOOL
+            for attribute in node.attribute
+        )
+    ]
+    if bool_casts:
+        raise RuntimeError(f"ONNX contains Cast(to=BOOL): {bool_casts}")
     shapes = ",".join(
         f"{name}={tuple(tensor.shape)}"
         for name, tensor in zip(input_names, inputs)

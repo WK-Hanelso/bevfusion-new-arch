@@ -217,12 +217,14 @@ class WidthFormerTransform(nn.Module):
         cam_trans = camera2lidar[..., :3, 3].float()
         intrinsics = intrinsics[..., :3, :3].float()
         transform = cam_rot.matmul(torch.linalg.inv(intrinsics))
-        points = transform.view(batch, views, 1, 1, 1, 3, 3).matmul(points).squeeze(-1)
+        points = transform.view(batch, views, 1, 1, 1, 3, 3).matmul(points)[..., 0]
         points = points + cam_trans.view(batch, views, 1, 1, 1, 3)
 
         aug_rot = lidar_aug[..., :3, :3].float()
         aug_trans = lidar_aug[..., :3, 3].float()
-        points = aug_rot.view(batch, 1, 1, 1, 1, 3, 3).matmul(points.unsqueeze(-1)).squeeze(-1)
+        points = aug_rot.view(batch, 1, 1, 1, 1, 3, 3).matmul(
+            points.unsqueeze(-1)
+        )[..., 0]
         return points + aug_trans.view(batch, 1, 1, 1, 1, 3)
 
     def _image_position(
@@ -282,7 +284,8 @@ class WidthFormerTransform(nn.Module):
             return torch.matmul(score.softmax(dim=-1), value_projected)
 
         chunk = self.attention_chunk_size
-        if chunk > 0 and query_projected.shape[1] > chunk:
+        query_tokens = self.bev_height * self.bev_width
+        if chunk > 0 and query_tokens > chunk:
             output = torch.cat(
                 [attend(part) for part in query_projected.split(chunk, dim=1)], dim=1
             )
@@ -299,14 +302,20 @@ class WidthFormerTransform(nn.Module):
         TensorRT graph while retaining depth-aware RefPE and BEV attention.
         """
         batch, views, channels, height, width = image.shape
-        if (height, width) != self.feature_size:
+        if (
+            not torch.onnx.is_in_onnx_export()
+            and (height, width) != self.feature_size
+        ):
             raise ValueError(
                 f"WidthFormer feature_size={self.feature_size}, got {(height, width)}"
             )
         expected_geometry_shape = (
             batch, views, len(self.depth_values), height, width, 3
         )
-        if tuple(geometry.shape) != expected_geometry_shape:
+        if (
+            not torch.onnx.is_in_onnx_export()
+            and tuple(geometry.shape) != expected_geometry_shape
+        ):
             raise ValueError(
                 f"expected geometry {expected_geometry_shape}, got {tuple(geometry.shape)}"
             )
