@@ -104,7 +104,7 @@ torchpack dist-run -np 1 python tools/train.py \
 공식 checkpoint 생성과 적용 범위는
 [`tools/dsvt_pretrained/README.md`](../dsvt_pretrained/README.md)를 따른다.
 
-## 2단계 wave 실행
+## 2단계 풀 스케줄러 실행
 
 런처는 `bevfusion-b200` conda 환경에서 `torchrun`을 실행한다. screening의
 기본값은 16개 전체, 6 epoch, 작업당 2 GPU, 4개 병렬이다. 먼저 실제 파일을
@@ -114,6 +114,7 @@ torchpack dist-run -np 1 python tools/train.py \
 ```bash
 python tools/ablation/launch_waves.py \
   --phase screening --dry-run \
+  --gpus 0,1,2,3,6,7 \
   --dataroot /data/nuscenes \
   --load-from-dsvt /weights/dsvt_nuscenes_official_lidar.pth
 
@@ -125,11 +126,20 @@ python tools/ablation/launch_waves.py \
 ```
 
 `--load-from-dsvt`는 첫 bit가 1인 8개 실험에만 `--load_from`으로 전달된다.
-각 slot은 고정된 `CUDA_VISIBLE_DEVICES`와 별도 master port를 사용한다. 한
-wave의 작업이 모두 끝나면 다음 wave가 시작된다. 비정상 exit 또는 로그의
-NaN/Inf, CUDA error, OOM을 실패로 기록하며, 실행 중 발견하면 해당 slot의
-프로세스만 종료한다. 실패 작업을 자동 재시작하지 않고 다른 slot과 다음
-wave는 계속 실행한다.
+`--gpus`의 기본값은 `0,1,2,3,4,5,6,7`이다. 이 목록을 앞에서부터
+`--gpus-per-job`개씩 묶어 GPU 그룹을 만들며, `--parallel`은 사용할 그룹 수의
+상한이다. 생략 시 만들어진 그룹을 모두 사용한다. 예를 들어 위 dry-run은
+`0,1`, `2,3`, `6,7`의 세 그룹을 사용한다. GPU 수는 작업당 GPU 수로 나누어
+떨어져야 한다.
+
+각 slot은 고정된 `CUDA_VISIBLE_DEVICES`와 그룹 인덱스 기반 master port
+(`29500 + slot`)를 사용한다. wave 배리어 없이 slot의 작업이 완료·실패하면
+대기열의 다음 실험을 즉시 같은 slot에 넣는다. 시작 시 전체 대기열을
+`[PLAN]`으로 한 번 출력하고, 실제 투입은 `[START]`, 종료는 즉시
+`[COMPLETED]` 또는 `[FAILED]`로 출력한다. 비정상 exit 또는 로그의 NaN/Inf,
+CUDA error, OOM을 실패로 기록하며, 실행 중 발견하면 해당 slot의 프로세스만
+종료한다. 종료를 확인하는 동안 2초 간격으로 최대 5회 재시도한 뒤 slot을
+재사용한다. 실패 작업은 자동 재시작하지 않으며 다른 slot은 계속 실행한다.
 
 `--epochs`는 Torchpack의 `--max_epochs` override로 전달된다. recursive config의
 `${max_epochs}` 때문에 `runner.max_epochs`와 GridMask가 함께 바뀌며, MMCV
@@ -137,8 +147,12 @@ cyclic LR/momentum hook은 runner의 변경된 `max_iters`를 전체 cycle 길�
 사용한다. 원본 YAML은 수정하지 않는다.
 
 중단 뒤 orchestration을 다시 시작할 때 `--resume`을 추가하면
-`metrics.json`의 status가 `completed`인 ID만 건너뛴다. 이는 checkpoint
-`--resume_from`이 아니며 실패 run을 자동 재개하지 않는다.
+`metrics.json`의 status가 `completed`인 ID를 건너뛴다. 이는 checkpoint
+`--resume_from`이 아니며 실패 run을 자동 재개하지 않는다. 실행 중에는
+`launcher.pid`를 기록한다. status가 `running`이고 그 PID가 살아 있으면 중복
+실행을 건너뛰며, PID가 없거나 종료된 stale running run은 대기열에 다시 넣는다.
+`metrics.json`의 기존 `wave` 필드는 호환을 위해 유지하며 이제 wave 번호가
+아니라 대기열의 실제 투입 순번을 뜻한다.
 
 screening 집계와 Top-4 출력은 다음과 같다. CSV는 epoch별 행을 담고 Markdown은
 선택 지표 기준 각 ID의 best epoch 및 B0 대비 delta를 담는다.
@@ -178,6 +192,7 @@ python tools/ablation/aggregate.py --phase final --top-k 4 --by NDS
 | `env.txt` | commit, seed, phase, bit, host와 GPU 배정 |
 | `train.log` | stdout/stderr 통합 학습·평가 로그 |
 | `metrics.json` | running/completed/failed 상태, exit code, wall time, 실패 근거 |
+| `launcher.pid` | 실행 중인 launcher child PID(작업 종료 시 삭제) |
 | `checkpoints/` | epoch/latest/best checkpoint 출력 위치 |
 
 phase 디렉터리에는 시작 시 캡처한 `env_nvidia_smi.txt`, `env_nvcc.txt`,

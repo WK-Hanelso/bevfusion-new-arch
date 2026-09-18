@@ -65,3 +65,51 @@ The screening dry-run created no run artifacts. CUDA execution, conda environmen
 capture, resolved Torchpack config generation, and real mmdet3d evaluation remain
 server-side checks because the local environment intentionally lacks those runtime
 dependencies.
+
+## §7 풀 스케줄러 (2026-09-19)
+
+### 구현
+
+1. Wave 배리어를 GPU 그룹 풀로 교체했다. 선택된 ID 순서의 단일 대기열을
+   유지하고, 완료·실패·fatal 종료로 slot이 비면 다음 ID를 즉시 같은 slot에
+   투입한다. `[PLAN]`은 전체 대기열에 대해 한 번씩 출력하고 실제 투입과
+   종료는 `[START]`, `[COMPLETED]`/`[FAILED]`로 즉시 출력한다.
+2. `--gpus`(기본 `0,1,2,3,4,5,6,7`)를 추가했다. GPU 목록은
+   `--gpus-per-job` 크기의 그룹으로 분할하고 `--parallel`은 그룹 수 상한으로만
+   적용한다. 생략한 `--parallel`은 실제 그룹 수를 사용한다. slot별 master
+   port는 `29500 + slot`이다.
+3. 이전 slot 프로세스가 종료되고 `wait()`로 회수된 뒤에만 같은 port로 다음
+   작업을 시작한다. Fatal 패턴으로 종료 요청한 프로세스는 다른 slot을 막지
+   않고 2초 간격, 최대 5회 확인·종료 요청 후 필요하면 kill한다.
+4. `metrics.json`의 기존 필드와 상태 값은 유지했다. `wave`는 실제 투입 순번을
+   기록한다. 실행 중 child PID는 `launcher.pid`에 기록하고 정상/실패 종료 시
+   삭제한다. `--resume`은 completed와 살아 있는 running PID를 건너뛰며,
+   PID가 없거나 죽은 stale running 작업은 다시 대기열에 넣는다.
+5. 기존 80개 테스트에 풀 refill, GPU 그룹 분할, dry-run 형식, running PID
+   resume 검증 4개를 추가했다. 가짜 subprocess 테스트에서 B0가 즉시 실패한
+   뒤 네 번째 작업 A3가 다른 두 장기 작업을 기다리지 않고 slot 0에 투입됨을
+   확인했다.
+
+### 검증
+
+저장소 루트에서 CPU-only 환경(torch/mmcv 및 패키지 설치 없음)으로 실행했다.
+
+```text
+PYTHONPATH=. python -m pytest -q tools/ablation/tests
+python tools/ablation/launch_waves.py --phase screening --dry-run --gpus 0,1,2,3,6,7
+python tools/ablation/launch_waves.py --phase screening --dry-run
+git diff --check
+```
+
+관측 결과:
+
+```text
+84 passed in 7.52s
+custom GPU dry-run: exit 0, 16 [PLAN], parallel=3, groups=0,1 / 2,3 / 6,7
+default GPU dry-run: exit 0, 16 [PLAN], parallel=4, groups=0,1 / 2,3 / 4,5 / 6,7
+git diff --check: clean
+```
+
+두 dry-run 모두 파일을 생성하지 않았고, screening 기본 6 epochs와 작업당
+2 GPU, slot별 `--master_port`, 16개 기존 실험 순서를 유지했다. 실제 CUDA
+학습 및 conda 환경 캡처는 이 호스트의 의존성 제약 때문에 수행하지 않았다.
