@@ -38,7 +38,7 @@ CPU 코어/RAM(데이터 로더 수), 디스크 여유(데이터 475GB + runs 20
 
 ## v2 (2026-09-19) — 2단계 구조로 변경 (사용자 제공 실행계획 문서 반영)
 
-- **Phase 1 스크리닝**: 16개 전부, 축소 스케줄(제안 6 epoch, LR 사이클도 6 epoch에 맞춤; 문서 원안은 2 epoch — 사용자 결정 대기), 2×B200/실험, 4개 동시 → 4 wave. wave 구성은 문서 §9(B0/A1/A2/A3 → A4/C1/C2/C3 → C4/C5/C6/P1 → P2/P3/P4/FINAL).
+- **Phase 1 스크리닝**: 16개 전부, **6 epoch 확정(2026-09-19 사용자 위임 → 오케스트레이터 제안 채택; LR 사이클도 6 epoch에 맞춤, 문서 원안 2 epoch 기각)**, 2×B200/실험, 4개 동시 → 4 wave. wave 구성은 문서 §9(B0/A1/A2/A3 → A4/C1/C2/C3 → C4/C5/C6/P1 → P2/P3/P4/FINAL).
 - **Phase 2 최종**: Top-4(NDS 기준, mAP·안정성·s/iter·VRAM 보조) + B0·FINAL 강제 포함 → **20 epoch 표준 스케줄**, 4개 동시(2 GPU씩) 또는 2개 동시(4 GPU씩). 문서 원안의 6 epoch은 표준 수치가 아니어서 채택하지 않음.
 - 실험 ID 별칭: B0, A1(dsvt), A2(wf), A3(dal), A4(gf), C1~C6, P1~P4, FINAL ↔ 4비트 이름. 런처·집계: `tools/ablation/launch_waves.py`, `aggregate.py` (SPEC_launcher.md).
 - 시간은 step3 속도 실측(4 GPU c4_full s/iter) 후 확정. 문서의 14~23h는 미실측 추정.
