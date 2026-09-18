@@ -66,3 +66,18 @@ MAXN 전환: `nvpmodel -m 0`은 재부팅 필요 → **사용자 승인 후 2026
 | 직렬 합 | ≈90 ms | 26.4 ms | 3.4× |
 
 **DSVT를 포함한 세 엔진이 Orin(TRT 8.5)에서 전부 빌드·실행됨.** 병렬 A/B/C E2E는 C++ 런타임 컴파일 후 측정. 정확도 비교(pth↔TRT)는 학습된 가중치 확보 후.
+
+## 7. C++ 런타임 E2E (Orin MAXN, TRT 8.5, r6 export 엔진 3개, 34,688 points, warmup 20, 100회)
+
+| 항목 | single-thread-submit | parallel-submit |
+|---|---:|---:|
+| engine_a p50 | 16.30 ms | 16.32 ms |
+| engine_b p50 | 53.23 ms | 53.15 ms |
+| engine_c p50 | 19.96 ms | 19.96 ms |
+| **sequential p50** | 90.20 ms | 90.20 ms |
+| **concurrent p50** | 88.31 ms | 87.93 ms |
+| median speedup | 1.021× | 1.026× |
+
+- 초기화 약 1.98 s, 출력 boxes[1,200,9]/scores/labels 정상(첫 검출 score 0.252). `PASS C++ TensorRT inference` 양쪽 모두.
+- Thor(26.4 ms)와 동일하게 **병렬 제출의 이득이 거의 없음**(A/B 겹침이 총 latency를 줄이지 못함) — Engine B가 지배적(59%).
+- Orin MAXN E2E ≈ 88 ms ↔ Thor 26.4 ms = 3.3배. 35 ms 목표는 Orin에서는 불가, Thor 전용 목표로 유지.
