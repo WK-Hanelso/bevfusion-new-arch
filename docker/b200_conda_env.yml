@@ -1,0 +1,22 @@
+name: bevfusion-b200
+channels:
+  - nvidia
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip=25.1
+  - setuptools=80.9
+  - wheel=0.45
+  - git
+  - ca-certificates
+  - ninja=1.11
+  - cmake>=3.26
+  - make
+  - gxx_linux-64=11
+  - openmpi>=4.1,<5
+  - libgl
+  - glib
+
+# CUDA is selected by setup_b200_conda.sh. It reuses a compatible system
+# CUDA 12.8+ toolkit when present, otherwise it installs cuda-toolkit=12.8
+# from the nvidia channel into this environment.

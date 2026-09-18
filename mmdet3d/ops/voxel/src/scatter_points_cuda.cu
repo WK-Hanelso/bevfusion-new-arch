@@ -1,8 +1,8 @@
+#include <algorithm>
+
 #include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <torch/types.h>
-
-#include <ATen/cuda/CUDAApplyUtils.cuh>
 
 typedef enum { SUM = 0, MEAN = 1, MAX = 2 } reduce_t;
 
@@ -17,6 +17,10 @@ typedef enum { SUM = 0, MEAN = 1, MAX = 2 } reduce_t;
 namespace {
 int const threadsPerBlock = 512;
 int const maxGridDim = 50000;
+
+inline int ceilDiv(const int value, const int divisor) {
+  return (value + divisor - 1) / divisor;
+}
 }  // namespace
 
 __device__ __forceinline__ static void reduceMax(float *address, float val) {
@@ -231,7 +235,7 @@ std::vector<at::Tensor> dynamic_point_to_voxel_forward_gpu(
     else
       reduced_feats.fill_(static_cast<scalar_t>(0));
 
-    dim3 blocks(std::min(at::cuda::ATenCeilDiv(num_input, threadsPerBlock),
+    dim3 blocks(std::min(ceilDiv(num_input, threadsPerBlock),
                          maxGridDim));
     dim3 threads(threadsPerBlock);
     feats_reduce_kernel<<<blocks, threads>>>(
@@ -273,7 +277,7 @@ void dynamic_point_to_voxel_backward_gpu(at::Tensor &grad_feats,
         grad_reduced_feats.scalar_type(), "add_reduce_traceback_grad_kernel",
         ([&] {
           dim3 blocks(std::min(
-              at::cuda::ATenCeilDiv(num_input, threadsPerBlock), maxGridDim));
+              ceilDiv(num_input, threadsPerBlock), maxGridDim));
           dim3 threads(threadsPerBlock);
           add_reduce_traceback_grad_kernel<<<blocks, threads>>>(
               grad_feats.data_ptr<scalar_t>(),
@@ -289,7 +293,7 @@ void dynamic_point_to_voxel_backward_gpu(at::Tensor &grad_feats,
         grad_reduced_feats.scalar_type(),
         "max_reduce_traceback_scatter_idx_kernel", ([&] {
           dim3 blocks(std::min(
-              at::cuda::ATenCeilDiv(num_input, threadsPerBlock), maxGridDim));
+              ceilDiv(num_input, threadsPerBlock), maxGridDim));
           dim3 threads(threadsPerBlock);
           max_reduce_traceback_scatter_idx_kernel<<<blocks, threads>>>(
               feats.data_ptr<scalar_t>(), reduced_feats.data_ptr<scalar_t>(),
@@ -302,7 +306,7 @@ void dynamic_point_to_voxel_backward_gpu(at::Tensor &grad_feats,
         grad_reduced_feats.scalar_type(),
         "max_reduce_traceback_scatter_idx_kernel", ([&] {
           dim3 blocks(std::min(
-              at::cuda::ATenCeilDiv(num_reduced, threadsPerBlock), maxGridDim));
+              ceilDiv(num_reduced, threadsPerBlock), maxGridDim));
           dim3 threads(threadsPerBlock);
           max_reduce_scatter_grad_kernel<<<blocks, threads>>>(
               grad_feats.data_ptr<scalar_t>(),

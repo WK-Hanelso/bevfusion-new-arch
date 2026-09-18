@@ -1,0 +1,35 @@
+# Python 3.10 training, nuScenes evaluation, and export dependencies.
+# torch/torchvision, mmcv-full, and torch-scatter are installed separately by
+# Dockerfile.cu128 so their CUDA wheels/source builds cannot be substituted.
+numpy==1.26.4
+numba==0.61.2
+llvmlite==0.44.0
+scipy>=1.10,<1.16
+Pillow>=9,<12
+opencv-python>=4.8,<5
+# nuscenes-devkit 1.1.11 declares matplotlib<3.6 and Shapely<2.
+matplotlib==3.5.3
+scikit-learn>=1.2,<1.8
+Shapely>=1.8.5,<2
+pycocotools>=2.0.7,<3
+nuscenes-devkit==1.1.11
+mmdet==2.28.2
+torchpack==0.3.1
+tensorpack>=0.11,<0.12
+tensorboard>=2.14,<2.20
+multimethod>=1.10,<2
+h5py>=3.8,<4
+PyYAML>=6,<7
+onnx>=1.14,<2
+# MMCV 1.7.2 still calls yapf.FormatCode(..., verify=True).
+yapf==0.32.0
+protobuf>=3.20.3,<6
+mpi4py>=3.1.6,<5
+typing_extensions>=4.10,<5
+ninja>=1.11,<2
+psutil>=5.9,<8
+
+# mmcv-full/mmdet runtime dependencies (mmcv-full is built with --no-deps).
+addict==2.4.0
+packaging>=23,<26
+terminaltables==3.1.10

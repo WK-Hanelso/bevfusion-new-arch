@@ -5,6 +5,62 @@ from setuptools import find_packages, setup
 from torch.utils.cpp_extension import BuildExtension, CppExtension, CUDAExtension
 
 
+def _cuda_version_tuple():
+    """Return the CUDA toolkit version reported by torch as a tuple."""
+    if not torch.version.cuda:
+        return ()
+    try:
+        return tuple(int(part) for part in torch.version.cuda.split("."))
+    except ValueError:
+        return ()
+
+
+def _default_cuda_archs():
+    """Keep old toolkits buildable while adding targets supported by newer nvcc."""
+    cuda_version = _cuda_version_tuple()
+    archs = ["70", "75", "80", "86"]
+    if cuda_version >= (11, 8):
+        archs.append("89")
+    if cuda_version >= (12, 0):
+        archs.append("90")
+    if cuda_version >= (12, 8):
+        archs.append("100")
+    return archs
+
+
+def _cuda_archs():
+    value = os.getenv("BEVFUSION_CUDA_ARCHS")
+    if not value:
+        return _default_cuda_archs()
+
+    archs = []
+    for item in value.replace(",", ";").split(";"):
+        item = item.strip().lower()
+        if not item:
+            continue
+        for prefix in ("compute_", "sm_"):
+            if item.startswith(prefix):
+                item = item[len(prefix):]
+        item = item.replace(".", "")
+        if not item.isdigit() or len(item) not in (2, 3):
+            raise ValueError(
+                "Invalid BEVFUSION_CUDA_ARCHS entry {!r}; use values such as "
+                "'8.6;8.9;9.0;10.0' or '86;89;90;100'".format(item)
+            )
+        if item not in archs:
+            archs.append(item)
+    if not archs:
+        raise ValueError("BEVFUSION_CUDA_ARCHS did not contain an architecture")
+    return archs
+
+
+def _cuda_gencode_flags():
+    return [
+        "-gencode=arch=compute_{0},code=sm_{0}".format(arch)
+        for arch in _cuda_archs()
+    ]
+
+
 def make_cuda_ext(
     name, module, sources, sources_cuda=[], extra_args=[], extra_include_path=[]
 ):
@@ -19,11 +75,7 @@ def make_cuda_ext(
             "-D__CUDA_NO_HALF_OPERATORS__",
             "-D__CUDA_NO_HALF_CONVERSIONS__",
             "-D__CUDA_NO_HALF2_OPERATORS__",
-            "-gencode=arch=compute_70,code=sm_70",
-            "-gencode=arch=compute_75,code=sm_75",
-            "-gencode=arch=compute_80,code=sm_80",
-            "-gencode=arch=compute_86,code=sm_86",
-        ]
+        ] + _cuda_gencode_flags()
         sources += sources_cuda
     elif (torch.cuda.is_available() and torch.version.hip is not None) or os.getenv("FORCE_ROCM", "0") == 1:
         define_macros += [("WITH_ROCM", None)]

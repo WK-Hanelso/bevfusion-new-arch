@@ -1,0 +1,59 @@
+# Build from the repository root:
+# docker build --platform linux/amd64 -f docker/Dockerfile.cu128 -t bevfusion-train:cu128 .
+FROM nvidia/cuda:12.8.1-devel-ubuntu22.04
+
+ARG DEBIAN_FRONTEND=noninteractive
+ARG MAX_JOBS=4
+RUN test "$(uname -m)" = "x86_64" \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+       python3.10 python3.10-dev python3.10-venv \
+       build-essential ninja-build git ca-certificates \
+       libgl1 libglib2.0-0 libgomp1 openmpi-bin libopenmpi-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python3.10 -m venv /opt/bevfusion
+ENV PATH="/opt/bevfusion/bin:/usr/local/cuda/bin:${PATH}" \
+    CUDA_HOME="/usr/local/cuda" \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    TORCH_HOME="/workspace/cache/torch" \
+    MPLCONFIGDIR="/workspace/cache/matplotlib" \
+    NUMBA_CACHE_DIR="/workspace/cache/numba" \
+    TORCH_CUDA_ARCH_LIST="8.6;8.9;9.0;10.0" \
+    BEVFUSION_CUDA_ARCHS="86;89;90;100"
+
+WORKDIR /workspace/bevfusion
+COPY docker/requirements-cu128.txt /opt/bevfusion-requirements/
+
+# Install the official cu128 wheel pair before either source extension. Keeping
+# the PyTorch index scoped to this command prevents unrelated packages from
+# being resolved against it.
+RUN python -m pip install --no-cache-dir \
+       pip==25.1.1 setuptools==80.9.0 wheel==0.45.1 \
+    && python -m pip install --no-cache-dir \
+       torch==2.7.1 torchvision==0.22.1 \
+       --index-url https://download.pytorch.org/whl/cu128 \
+    && python -m pip install --no-cache-dir \
+       -r /opt/bevfusion-requirements/requirements-cu128.txt
+
+# No cu128/torch-2.7 binary exists for the legacy OpenMMLab 1.x stack. Build
+# both CUDA packages against the torch wheel and CUDA toolkit in this image.
+RUN MMCV_WITH_OPS=1 FORCE_CUDA=1 MAX_JOBS=${MAX_JOBS} \
+       python -m pip install --no-cache-dir --no-build-isolation --no-deps \
+       --no-binary=mmcv-full mmcv-full==1.7.2 \
+    && FORCE_CUDA=1 MAX_JOBS=${MAX_JOBS} \
+       python -m pip install --no-cache-dir --no-build-isolation --no-deps \
+       --no-binary=torch-scatter torch-scatter==2.1.2 \
+    && python -m pip check
+
+# .dockerignore excludes host-built .so, data, weights, runs and Git metadata.
+COPY . .
+# Builds usually have no GPU. FORCE_CUDA prevents CPU-only extension builds.
+RUN FORCE_CUDA=1 MAX_JOBS=${MAX_JOBS} \
+       python -m pip install --no-cache-dir -e . --no-deps --no-build-isolation \
+    && python docker/check_environment.py --strict --stack cu128 \
+    && python -m pip check \
+    && mkdir -p /workspace/cache /workspace/bevfusion/runs
+
+CMD ["bash"]

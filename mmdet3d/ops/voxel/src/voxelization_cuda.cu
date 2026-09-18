@@ -1,9 +1,9 @@
+#include <algorithm>
+
 #include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAGuard.h>
 #include <torch/types.h>
-
-#include <ATen/cuda/CUDAApplyUtils.cuh>
 
 #define CHECK_CUDA(x) \
   TORCH_CHECK(x.device().is_cuda(), #x " must be a CUDA tensor")
@@ -15,6 +15,10 @@
 
 namespace {
 int const threadsPerBlock = sizeof(unsigned long long) * 8;
+
+inline int ceilDiv(const int value, const int divisor) {
+  return (value + divisor - 1) / divisor;
+}
 }
 
 #define CUDA_1D_KERNEL_LOOP(i, n)                            \
@@ -261,7 +265,7 @@ int hard_voxelize_gpu(const at::Tensor& points, at::Tensor& voxels,
   at::Tensor temp_coors =
       at::zeros({num_points, NDim}, points.options().dtype(at::kInt));
 
-  dim3 grid(std::min(at::cuda::ATenCeilDiv(num_points, 512), 4096));
+  dim3 grid(std::min(ceilDiv(num_points, 512), 4096));
   dim3 block(512);
 
   // 1. link point to corresponding voxel coors
@@ -291,7 +295,7 @@ int hard_voxelize_gpu(const at::Tensor& points, at::Tensor& voxels,
       },
       points.options().dtype(at::kInt));
 
-  dim3 map_grid(std::min(at::cuda::ATenCeilDiv(num_points, 512), 4096));
+  dim3 map_grid(std::min(ceilDiv(num_points, 512), 4096));
   dim3 map_block(512);
   AT_DISPATCH_ALL_TYPES(
       temp_coors.scalar_type(), "determin_duplicate", ([&] {
@@ -334,7 +338,7 @@ int hard_voxelize_gpu(const at::Tensor& points, at::Tensor& voxels,
   // 4. copy point features to voxels
   // Step 4 & 5 could be parallel
   auto pts_output_size = num_points * num_features;
-  dim3 cp_grid(std::min(at::cuda::ATenCeilDiv(pts_output_size, 512), 4096));
+  dim3 cp_grid(std::min(ceilDiv(pts_output_size, 512), 4096));
   dim3 cp_block(512);
   AT_DISPATCH_ALL_TYPES(
       points.scalar_type(), "assign_point_to_voxel", ([&] {
@@ -352,7 +356,7 @@ int hard_voxelize_gpu(const at::Tensor& points, at::Tensor& voxels,
   // 5. copy coors of each voxels
   auto coors_output_size = num_points * NDim;
   dim3 coors_cp_grid(
-      std::min(at::cuda::ATenCeilDiv(coors_output_size, 512), 4096));
+      std::min(ceilDiv(coors_output_size, 512), 4096));
   dim3 coors_cp_block(512);
   AT_DISPATCH_ALL_TYPES(
       points.scalar_type(), "assign_point_to_voxel", ([&] {
@@ -408,7 +412,7 @@ int nondisterministic_hard_voxelize_gpu(
   at::Tensor temp_coors =
       at::zeros({num_points, NDim}, points.options().dtype(torch::kInt32));
 
-  dim3 grid(std::min(at::cuda::ATenCeilDiv(num_points, 512), 4096));
+  dim3 grid(std::min(ceilDiv(num_points, 512), 4096));
   dim3 block(512);
 
   // 1. link point to corresponding voxel coors
@@ -449,7 +453,7 @@ int nondisterministic_hard_voxelize_gpu(
   reduce_count = coors_map.new_zeros(num_coors);
   pts_id = coors_map.new_zeros(num_points);
 
-  dim3 cp_grid(std::min(at::cuda::ATenCeilDiv(num_points, 512), 4096));
+  dim3 cp_grid(std::min(ceilDiv(num_points, 512), 4096));
   dim3 cp_block(512);
   AT_DISPATCH_ALL_TYPES(points.scalar_type(), "get_assign_pos", ([&] {
     nondisterministic_get_assign_pos<<<cp_grid, cp_block, 0,
@@ -509,7 +513,7 @@ void dynamic_voxelize_gpu(const at::Tensor& points, at::Tensor& coors,
   const int grid_y = round((coors_y_max - coors_y_min) / voxel_y);
   const int grid_z = round((coors_z_max - coors_z_min) / voxel_z);
 
-  const int col_blocks = at::cuda::ATenCeilDiv(num_points, threadsPerBlock);
+  const int col_blocks = ceilDiv(num_points, threadsPerBlock);
   dim3 blocks(col_blocks);
   dim3 threads(threadsPerBlock);
   cudaStream_t stream = at::cuda::getCurrentCUDAStream();
