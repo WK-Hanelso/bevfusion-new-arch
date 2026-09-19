@@ -39,7 +39,7 @@ import sys; sys.path.insert(0,'tools/ablation')
 from experiments import BY_ID; print('yes' if BY_ID['$ID'].uses_dsvt else 'no')")
   [ "$USES_DSVT" = "yes" ] && EXTRA=(--load_from pretrained/dsvt_nuscenes_official_lidar.pth)
   # per-GPU batch <= 16 (legacy spconv limit); reach global batch 32 via gradient accumulation
-  local SPG=$((32 / PER_JOB)) ACC=(); if [ "$SPG" -gt 16 ]; then ACC=(--optimizer_config.type GradientCumulativeOptimizerHook --optimizer_config.cumulative_iters $((SPG / 16))); SPG=16; fi
+  local SPG=$((32 / PER_JOB)) ACC=(); if [ "$SPG" -gt 16 ] && [ "${BEVFUSION_SPCONV:-legacy}" != "v2" ]; then ACC=(--optimizer_config.type GradientCumulativeOptimizerHook --optimizer_config.cumulative_iters $((SPG / 16))); SPG=16; fi
   RUN="$GATE/run_${ID}"; rm -rf "$RUN"; mkdir -p "$RUN"
   echo "== 2) [$ID] gpus=$G port=$PORT cfg=$CFG start $(date +%H:%M:%S)  (progress: tail -f $RUN/train.log)"
   CUDA_VISIBLE_DEVICES="$G" conda run -n "$ENV" --no-capture-output torchrun --master_port="$PORT" --nproc_per_node="$PER_JOB" \

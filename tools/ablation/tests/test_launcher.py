@@ -257,3 +257,10 @@ def test_one_gpu_job_uses_batch16_with_gradient_accumulation(tmp_path, capsys):
                  "--dry-run", "--runs-root", str(tmp_path)]) == 0
     out = capsys.readouterr().out
     assert "--data.samples_per_gpu 16" in out and "cumulative_iters" not in out
+
+
+def test_spconv_v2_lifts_per_gpu_batch_cap(monkeypatch):
+    monkeypatch.setenv("BEVFUSION_SPCONV", "v2")
+    assert launch_waves.batch_plan(1) == (32, 1)
+    monkeypatch.setenv("BEVFUSION_SPCONV", "legacy")
+    assert launch_waves.batch_plan(1) == (16, 2)

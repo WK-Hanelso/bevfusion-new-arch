@@ -81,10 +81,17 @@ WORKERS_PER_GPU = 8
 MAX_SAMPLES_PER_GPU = 16
 
 
+def max_samples_per_gpu() -> int:
+    """spconv v2 (BEVFUSION_SPCONV=v2) has no per-GPU batch limit."""
+    if os.environ.get("BEVFUSION_SPCONV", "legacy").lower() == "v2":
+        return GLOBAL_BATCH
+    return MAX_SAMPLES_PER_GPU
+
+
 def batch_plan(gpus_per_job: int):
     """Return (samples_per_gpu, cumulative_iters) preserving GLOBAL_BATCH."""
     per_gpu = GLOBAL_BATCH // gpus_per_job
-    samples = min(per_gpu, MAX_SAMPLES_PER_GPU)
+    samples = min(per_gpu, max_samples_per_gpu())
     cumulative = max(1, per_gpu // samples)
     return samples, cumulative
 
