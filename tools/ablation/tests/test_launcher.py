@@ -243,3 +243,17 @@ def test_failure_regex_ignores_eval_table_nan():
     assert regex.search("loss/object/loss_bbox: inf")
     assert regex.search("grad_norm: nan")
     assert regex.search("RuntimeError: CUDA error: device-side assert triggered")
+
+
+def test_one_gpu_job_uses_batch16_with_gradient_accumulation(tmp_path, capsys):
+    assert main(["--phase", "screening", "--ids", "B0", "--gpus-per-job", "1",
+                 "--dry-run", "--runs-root", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "--data.samples_per_gpu 16" in out
+    assert "--optimizer_config.type GradientCumulativeOptimizerHook" in out
+    assert "--optimizer_config.cumulative_iters 2" in out
+    capsys.readouterr()
+    assert main(["--phase", "screening", "--ids", "B0", "--gpus-per-job", "2",
+                 "--dry-run", "--runs-root", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "--data.samples_per_gpu 16" in out and "cumulative_iters" not in out

@@ -75,6 +75,18 @@ def normalize_dataroot(value: str) -> str:
 
 GLOBAL_BATCH = 32  # original BEVFusion: 8 GPU x 4
 WORKERS_PER_GPU = 8
+# Legacy spconv (mmdet3d/ops/spconv) hits "illegal memory access" above 16
+# samples per GPU (B200, 2026-09-19). Keep per-GPU batch <= 16 and reach the
+# global batch with mmcv GradientCumulativeOptimizerHook.
+MAX_SAMPLES_PER_GPU = 16
+
+
+def batch_plan(gpus_per_job: int):
+    """Return (samples_per_gpu, cumulative_iters) preserving GLOBAL_BATCH."""
+    per_gpu = GLOBAL_BATCH // gpus_per_job
+    samples = min(per_gpu, MAX_SAMPLES_PER_GPU)
+    cumulative = max(1, per_gpu // samples)
+    return samples, cumulative
 
 
 def build_command(
@@ -117,10 +129,18 @@ def build_command(
         # lr (1e-4, cyclic x10). Batch 8 with the same lr diverged on B200
         # (2026-09-19: loss 4.3 -> 8.4 as lr rose to 4e-4, mAP 0 after epoch 1).
         "--data.samples_per_gpu",
-        str(GLOBAL_BATCH // gpus_per_job),
+        str(batch_plan(gpus_per_job)[0]),
         "--data.workers_per_gpu",
         str(WORKERS_PER_GPU),
     ]
+    cumulative = batch_plan(gpus_per_job)[1]
+    if cumulative > 1:
+        command += [
+            "--optimizer_config.type",
+            "GradientCumulativeOptimizerHook",
+            "--optimizer_config.cumulative_iters",
+            str(cumulative),
+        ]
     if experiment.uses_dsvt and load_from_dsvt:
         command.extend(["--load_from", load_from_dsvt])
     if resume_from:

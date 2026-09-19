@@ -38,19 +38,23 @@ from experiments import BY_ID; print(BY_ID['$ID'].config_path)")
 import sys; sys.path.insert(0,'tools/ablation')
 from experiments import BY_ID; print('yes' if BY_ID['$ID'].uses_dsvt else 'no')")
   [ "$USES_DSVT" = "yes" ] && EXTRA=(--load_from pretrained/dsvt_nuscenes_official_lidar.pth)
+  # per-GPU batch <= 16 (legacy spconv limit); reach global batch 32 via gradient accumulation
+  local SPG=$((32 / PER_JOB)) ACC=(); if [ "$SPG" -gt 16 ]; then ACC=(--optimizer_config.type GradientCumulativeOptimizerHook --optimizer_config.cumulative_iters $((SPG / 16))); SPG=16; fi
   RUN="$GATE/run_${ID}"; rm -rf "$RUN"; mkdir -p "$RUN"
   echo "== 2) [$ID] gpus=$G port=$PORT cfg=$CFG start $(date +%H:%M:%S)  (progress: tail -f $RUN/train.log)"
   CUDA_VISIBLE_DEVICES="$G" conda run -n "$ENV" --no-capture-output torchrun --master_port="$PORT" --nproc_per_node="$PER_JOB" \
     tools/train_torchrun.py "$CFG" --run-dir "$RUN" --max_epochs 1 --dataset_root "$MINI/" --seed 0 --fp16 None \
     --find_unused_parameters True --checkpoint_config.out_dir "$RUN/checkpoints" \
-    --data.samples_per_gpu $((32 / PER_JOB)) --data.workers_per_gpu 8 "${EXTRA[@]}" > "$RUN/train.log" 2>&1
+    --data.samples_per_gpu "$SPG" --data.workers_per_gpu 8 "${ACC[@]}" "${EXTRA[@]}" > "$RUN/train.log" 2>&1
   local RC=$? CKPT MAP NDS
   CKPT=$(find "$RUN/checkpoints" -name "epoch_1.pth" 2>/dev/null | head -1)
   MAP=$(grep -oE "mAP: [0-9.]+" "$RUN/train.log" | tail -1); NDS=$(grep -oE "NDS: [0-9.]+" "$RUN/train.log" | tail -1)
   if [ $RC -eq 0 ] && [ -n "$CKPT" ] && [ -n "$MAP" ] && [ -n "$NDS" ]; then
     echo "   PASS $ID $(date +%H:%M:%S) ckpt=$CKPT $MAP $NDS"; echo PASS > "$RUN/RESULT"
   else
-    echo "   FAIL $ID $(date +%H:%M:%S) rc=$RC ckpt='${CKPT}' map='${MAP}' nds='${NDS}'"; grep -E "Error|error" "$RUN/train.log" | tail -5; echo FAIL > "$RUN/RESULT"
+    echo "   FAIL $ID $(date +%H:%M:%S) rc=$RC ckpt='${CKPT}' map='${MAP}' nds='${NDS}'"
+    grep -hE "^\[rank0\]: [A-Za-z.]*(Error|Exception)|^[A-Za-z.]*(Error|Exception):|out of memory" "$RUN/train.log" | grep -v UserWarning | head -3 | cut -c1-200 | sed 's/^/      /'
+    echo FAIL > "$RUN/RESULT"
   fi
 }
 FAIL=0; i=0
