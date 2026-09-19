@@ -2,13 +2,13 @@
 # 스크리닝 원샷 실행기 — 게이트(선택 ID 전부) → 런처 → 자동 집계. 화면에 60초마다 상태를 찍는다.
 # 사용: bash tools/ablation/run_screening.sh <nuscenes_root> <ID ...>
 #   env: GPUS_PER_JOB(기본 1)  PARALLEL(기본 8)  EPOCHS(기본 6)  LOAD_FROM_DSVT(기본 pretrained/dsvt_nuscenes_official_lidar.pth)
-#        GPUS(기본 0,1,2,3,4,5,6,7; 게이트·런처 공통)  MASTER_PORT(기본 29500)  TAG(로그 접미사, 기본 없음)  RESUME=1(완료 run 건너뛰고 미완료 run은 최신 epoch ckpt에서 이어받기)
+#        GPUS(기본 0,1,2,3,4,5,6,7; 게이트·런처 공통)  MASTER_PORT(기본 29500)  TAG(로그 접미사, 기본 없음)  RESUME=1(완료 run 건너뛰고 미완료 run은 최신 epoch ckpt에서 이어받기)  SKIP_GATE=1(게이트 생략: 같은 모델 코드로 이미 게이트 통과했을 때만)
 #   Ctrl-C 하면 게이트/런처/학습 프로세스를 전부 종료한다.
 set -uo pipefail
 ROOT="${1:?nuscenes_root}"; shift; IDS=("$@"); [ ${#IDS[@]} -eq 0 ] && { echo "IDs required"; exit 2; }
 cd "$(dirname "$0")/../.."
 GPJ="${GPUS_PER_JOB:-1}"; PAR="${PARALLEL:-8}"; EP="${EPOCHS:-6}"; DSVT="${LOAD_FROM_DSVT:-pretrained/dsvt_nuscenes_official_lidar.pth}"
-GPUS="${GPUS:-0,1,2,3,4,5,6,7}"; MPORT="${MASTER_PORT:-29500}"; TAG="${TAG:-}"; RESUME_FLAG=""; [ "${RESUME:-0}" = "1" ] && RESUME_FLAG="--resume"
+GPUS="${GPUS:-0,1,2,3,4,5,6,7}"; MPORT="${MASTER_PORT:-29500}"; TAG="${TAG:-}"; RESUME_FLAG=""; [ "${RESUME:-0}" = "1" ] && RESUME_FLAG="--resume"; SKIP_FLAG=""; [ "${SKIP_GATE:-0}" = "1" ] && SKIP_FLAG="--skip-gate"
 RUNLOG="experiments/screening_run${TAG:+_$TAG}.log"; mkdir -p experiments
 : > "$RUNLOG"
 T0=$(date +%s)
@@ -27,9 +27,9 @@ trap cleanup INT TERM
 echo "== run_screening start $(date)  ids=${IDS[*]}  gpus=$GPUS gpus_per_job=$GPJ parallel=$PAR epochs=$EP port=$MPORT"
 echo "== 상세 로그: $RUNLOG   run별 로그: experiments/runs/screening/<ID>/train.log"
 setsid bash -c "
-  GATE_GPUS='$GPUS' GATE_PER_JOB=$GPJ bash tools/ablation/gate_e2e.sh '$ROOT' ${IDS[*]} && \
+  ( [ -n '$SKIP_FLAG' ] && echo '== gate SKIPPED (SKIP_GATE=1)' || GATE_GPUS='$GPUS' GATE_PER_JOB=$GPJ bash tools/ablation/gate_e2e.sh '$ROOT' ${IDS[*]} ) && \
   python tools/ablation/launch_waves.py --phase screening --ids ${IDS[*]} --gpus '$GPUS' --gpus-per-job $GPJ --parallel $PAR --epochs $EP \
-    --master-port $MPORT $RESUME_FLAG --dataroot '$ROOT' --load-from-dsvt '$DSVT'
+    --master-port $MPORT $RESUME_FLAG $SKIP_FLAG --dataroot '$ROOT' --load-from-dsvt '$DSVT'
   echo \"PIPELINE_EXIT=\$?\"
 " > "$RUNLOG" 2>&1 &
 PIPE_PID=$!
