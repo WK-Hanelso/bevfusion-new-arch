@@ -29,6 +29,11 @@ typing_extensions>=4.10,<5
 ninja>=1.11,<2
 psutil>=5.9,<8
 
+# Optional SparseEncoder backend: install separately after verifying the wheel
+# against torch 2.7.1+cu128. spconv has no cu128 wheel as of 2026-09-19;
+# spconv-cu126 (or cu124) may work through CUDA minor-version compatibility.
+# spconv-cu126
+
 # mmcv-full/mmdet runtime dependencies (mmcv-full is built with --no-deps).
 addict==2.4.0
 packaging>=23,<26
