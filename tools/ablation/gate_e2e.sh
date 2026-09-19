@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # E2E 게이트 — 본 실행 전에 "학습 → 체크포인트 → full val 평가(mAP/NDS)"를 실제로 완주한다.
 # 통과 시 experiments/gate/PASS_<git rev>.txt 를 만들고, launch_waves.py는 이 마커가 없으면 실행을 거부한다.
-# 사용: bash tools/ablation/gate_e2e.sh <nuscenes_root> [ID ...]   (기본 ID: B0 FINAL)
-#   env: GATE_GPUS(기본 0,1)  GATE_TRAIN_SAMPLES(기본 512)  CONDA_ENV(기본 bevfusion-b200)
+# 사용: bash tools/ablation/gate_e2e.sh <nuscenes_root> [ID ...]   (기본 ID: B0 A1 A2 FINAL — 4개를 GPU 그룹별로 동시에)
+#   env: GATE_GPUS(기본 0,1,2,3,4,5,6,7; 2장씩 잘라 ID를 병렬 배치)  GATE_TRAIN_SAMPLES(기본 512)  CONDA_ENV(기본 bevfusion-b200)
 set -uo pipefail
-ROOT="${1:?nuscenes_root}"; shift; IDS=("$@"); [ ${#IDS[@]} -eq 0 ] && IDS=(B0 FINAL)
+ROOT="${1:?nuscenes_root}"; shift; IDS=("$@"); [ ${#IDS[@]} -eq 0 ] && IDS=(B0 A1 A2 FINAL)
 cd "$(dirname "$0")/../.."
-ENV="${CONDA_ENV:-bevfusion-b200}"; GPUS="${GATE_GPUS:-0,1}"; N="${GATE_TRAIN_SAMPLES:-512}"
+ENV="${CONDA_ENV:-bevfusion-b200}"; GPUS="${GATE_GPUS:-0,1,2,3,4,5,6,7}"; N="${GATE_TRAIN_SAMPLES:-512}"; PER_JOB=2
 REV="$(git rev-parse HEAD)"; GATE=experiments/gate; MINI="$GATE/mini_nuscenes"
 NPROC=$(echo "$GPUS" | tr ',' '\n' | wc -l)
 echo "== gate start $(date)  rev=${REV:0:8} ids=${IDS[*]} gpus=$GPUS train_samples=$N"
@@ -25,31 +25,45 @@ pickle.dump(d, open(f"{mini}/nuscenes_infos_train.pkl", "wb"))
 print("mini train infos:", len(d["infos"]))
 PY
 
-FAIL=0
-for ID in "${IDS[@]}"; do
+# GPU 목록을 PER_JOB개씩 잘라 그룹을 만들고, ID를 그룹에 병렬 배치한다(그룹 수만큼 동시 실행).
+mapfile -t GPU_ARR < <(echo "$GPUS" | tr ',' '\n')
+GROUPS_N=$(( ${#GPU_ARR[@]} / PER_JOB )); [ $GROUPS_N -lt 1 ] && GROUPS_N=1
+run_one() {  # $1=ID $2=gpu list "a,b" $3=port
+  local ID="$1" G="$2" PORT="$3"
+  local CFG RUN USES_DSVT EXTRA=()
   CFG=$(conda run -n "$ENV" --no-capture-output python -c "
 import sys; sys.path.insert(0,'tools/ablation')
 from experiments import BY_ID; print(BY_ID['$ID'].config_path)")
-  RUN="$GATE/run_${ID}"; rm -rf "$RUN"; mkdir -p "$RUN"
-  echo "== 2) train 1 epoch + eval: $ID ($CFG) $(date)"
-  EXTRA=()
   USES_DSVT=$(conda run -n "$ENV" --no-capture-output python -c "
 import sys; sys.path.insert(0,'tools/ablation')
 from experiments import BY_ID; print('yes' if BY_ID['$ID'].uses_dsvt else 'no')")
   [ "$USES_DSVT" = "yes" ] && EXTRA=(--load_from pretrained/dsvt_nuscenes_official_lidar.pth)
-  CUDA_VISIBLE_DEVICES="$GPUS" conda run -n "$ENV" --no-capture-output torchrun --master_port=29650 --nproc_per_node="$NPROC" \
+  RUN="$GATE/run_${ID}"; rm -rf "$RUN"; mkdir -p "$RUN"
+  echo "== 2) [$ID] gpus=$G port=$PORT cfg=$CFG start $(date +%H:%M:%S)  (progress: tail -f $RUN/train.log)"
+  CUDA_VISIBLE_DEVICES="$G" conda run -n "$ENV" --no-capture-output torchrun --master_port="$PORT" --nproc_per_node="$PER_JOB" \
     tools/train_torchrun.py "$CFG" --run-dir "$RUN" --max_epochs 1 --dataset_root "$MINI/" --seed 0 --fp16 None \
     --find_unused_parameters True --checkpoint_config.out_dir "$RUN/checkpoints" \
-    --data.samples_per_gpu $((32 / NPROC)) --data.workers_per_gpu 8 "${EXTRA[@]}" > "$RUN/train.log" 2>&1
-  RC=$?
+    --data.samples_per_gpu $((32 / PER_JOB)) --data.workers_per_gpu 8 "${EXTRA[@]}" > "$RUN/train.log" 2>&1
+  local RC=$? CKPT MAP NDS
   CKPT=$(find "$RUN/checkpoints" -name "epoch_1.pth" 2>/dev/null | head -1)
   MAP=$(grep -oE "mAP: [0-9.]+" "$RUN/train.log" | tail -1); NDS=$(grep -oE "NDS: [0-9.]+" "$RUN/train.log" | tail -1)
   if [ $RC -eq 0 ] && [ -n "$CKPT" ] && [ -n "$MAP" ] && [ -n "$NDS" ]; then
-    echo "   PASS $ID rc=$RC ckpt=$CKPT $MAP $NDS"
+    echo "   PASS $ID $(date +%H:%M:%S) ckpt=$CKPT $MAP $NDS"; echo PASS > "$RUN/RESULT"
   else
-    echo "   FAIL $ID rc=$RC ckpt='${CKPT}' map='${MAP}' nds='${NDS}'"; grep -E "Error|error" "$RUN/train.log" | tail -5; FAIL=1
+    echo "   FAIL $ID $(date +%H:%M:%S) rc=$RC ckpt='${CKPT}' map='${MAP}' nds='${NDS}'"; grep -E "Error|error" "$RUN/train.log" | tail -5; echo FAIL > "$RUN/RESULT"
   fi
+}
+FAIL=0; i=0
+while [ $i -lt ${#IDS[@]} ]; do
+  PIDS=()
+  for g in $(seq 0 $((GROUPS_N - 1))); do
+    [ $i -ge ${#IDS[@]} ] && break
+    GL=$(IFS=,; echo "${GPU_ARR[*]:$((g * PER_JOB)):$PER_JOB}")
+    run_one "${IDS[$i]}" "$GL" $((29650 + g)) & PIDS+=($!); i=$((i + 1))
+  done
+  wait "${PIDS[@]}"
 done
+for ID in "${IDS[@]}"; do [ "$(cat "$GATE/run_${ID}/RESULT" 2>/dev/null)" = "PASS" ] || FAIL=1; done
 
 if [ $FAIL -eq 0 ]; then
   {
