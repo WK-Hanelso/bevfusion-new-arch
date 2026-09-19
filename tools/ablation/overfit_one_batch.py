@@ -20,9 +20,19 @@ import time
 
 import torch
 from mmcv import Config
-from mmcv.parallel import collate, scatter
+from mmcv.parallel import collate
 from mmcv.runner import load_checkpoint
 from torchpack.utils.config import configs
+
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+import train_torchrun as _shim  # noqa: E402  mmcv 1.x <-> torch>=2.1 compatibility patches
+
+_shim._patch_yapf()
+_shim._patch_mmcv_get_stream()
+_shim._patch_mmcv_ddp_forward()
 
 from mmdet3d.datasets import build_dataset
 from mmdet3d.models import build_model
@@ -61,12 +71,18 @@ def main():
     if args.load_from:
         load_checkpoint(model, args.load_from, map_location="cpu")
     use_cuda = torch.cuda.is_available() and not args.cpu
+    from mmcv.parallel import MMDataParallel
+
     if use_cuda:
-        model = model.cuda()
-        data = scatter(data, [0])[0]
+        model = MMDataParallel(model.cuda(), device_ids=[0])
     else:
-        from mmcv.parallel import MMDataParallel  # noqa: F401  (import check)
-        data = scatter(data, [-1])[0]  # unwrap DataContainers on CPU
+        from mmcv.parallel import DataContainer
+
+        # CPU: unwrap the per-GPU chunk 0 of every DataContainer by hand.
+        data = {
+            k: (v.data[0] if isinstance(v, DataContainer) else v)
+            for k, v in data.items()
+        }
     model.train()
 
     opt_cfg = dict(cfg.optimizer)
@@ -79,18 +95,23 @@ def main():
 
     t0 = time.time()
     for step in range(1, args.steps + 1):
-        losses = model(**data)
-        loss_terms = {k: v for k, v in losses.items() if k.startswith("loss")}
-        total = sum(v.mean() for v in loss_terms.values())
+        # Same entry point the mmcv runner uses: model.train_step -> _parse_losses
+        outputs = model.train_step(data, None)
+        total = outputs["loss"]
         optimizer.zero_grad()
         total.backward()
         grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 35.0)
         optimizer.step()
         if step in (1, 2, 5, 10) or step % 10 == 0:
-            parts = " ".join(f"{k.split('/')[-1]}={v.mean().item():.4f}" for k, v in loss_terms.items())
-            stats = " ".join(f"{k.split('/')[-1]}={v.mean().item():.4f}" for k, v in losses.items() if k.startswith("stats"))
-            print(f"step {step:4d} total={total.item():.4f} {parts} {stats} grad_norm={grad_norm:.2f} "
-                  f"t={time.time() - t0:.0f}s", flush=True)
+            log_vars = outputs["log_vars"]
+            parts = " ".join(
+                f"{k.split('/')[-1]}={v:.4f}" for k, v in log_vars.items() if k != "loss"
+            )
+            print(
+                f"step {step:4d} total={total.item():.4f} {parts} grad_norm={float(grad_norm):.2f} "
+                f"t={time.time() - t0:.0f}s",
+                flush=True,
+            )
 
 
 if __name__ == "__main__":

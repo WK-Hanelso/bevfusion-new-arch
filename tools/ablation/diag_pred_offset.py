@@ -27,6 +27,16 @@ from mmcv.parallel import MMDataParallel, collate, scatter
 from mmcv.runner import load_checkpoint
 from torchpack.utils.config import configs
 
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+import train_torchrun as _shim  # noqa: E402  mmcv 1.x <-> torch>=2.1 compatibility patches
+
+_shim._patch_yapf()
+_shim._patch_mmcv_get_stream()
+_shim._patch_mmcv_ddp_forward()
+
 from mmdet3d.datasets import build_dataset
 from mmdet3d.models import build_model
 from mmdet3d.utils import recursive_eval
