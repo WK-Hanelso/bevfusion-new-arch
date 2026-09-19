@@ -1,0 +1,291 @@
+{
+  "schema_version": 1,
+  "environment": {
+    "python": "3.9.5",
+    "torch": "1.12.0+cu116",
+    "cuda_available": true,
+    "dtype": "float32",
+    "mode": "eval",
+    "torch_num_threads": 2
+  },
+  "tolerance": {
+    "max_abs_diff": 0.001,
+    "relative_diff_definition": "L2(candidate-reference) / L2(reference)"
+  },
+  "checkpoint_load": {
+    "official": {
+      "strict": true,
+      "selected_tensor_count": 336,
+      "key_mapping": false,
+      "prefixes": [
+        "vfe.",
+        "backbone_3d.",
+        "map_to_bev.",
+        "backbone_2d."
+      ]
+    },
+    "ours": {
+      "strict": false,
+      "loaded_tensor_count": 339,
+      "stripped_prefix": "encoders.lidar.backbone.",
+      "missing": [
+        "neck.adapter.0.weight",
+        "neck.adapter.1.bias",
+        "neck.adapter.1.running_mean",
+        "neck.adapter.1.running_var",
+        "neck.adapter.1.weight"
+      ],
+      "uninitialized_adapter_state": [
+        "neck.adapter.0.weight",
+        "neck.adapter.1.bias",
+        "neck.adapter.1.num_batches_tracked",
+        "neck.adapter.1.running_mean",
+        "neck.adapter.1.running_var",
+        "neck.adapter.1.weight"
+      ],
+      "unexpected": []
+    }
+  },
+  "samples": [
+    {
+      "file": "/home/hanelso/data/nuscenes/samples/LIDAR_TOP/n008-2018-08-01-15-16-36-0400__LIDAR_TOP__1533151603547590.pcd.bin",
+      "raw_point_count": 34752,
+      "range_filtered_point_count": 33623,
+      "pillar_coordinates": {
+        "official_count": 3687,
+        "ours_count": 3687,
+        "set_equal": true,
+        "official_only": 0,
+        "ours_only": 0
+      },
+      "stages": {
+        "vfe": {
+          "max_abs_diff": 2.9355287551879883e-06,
+          "relative_l2_diff": 1.063310037352494e-06,
+          "cosine_similarity": 0.9999999999994348,
+          "elements": 471936,
+          "shape": [
+            3687,
+            128
+          ],
+          "pass": true
+        },
+        "dsvt_block_0": {
+          "max_abs_diff": 6.645917892456055e-06,
+          "relative_l2_diff": 1.8432996284900582e-06,
+          "cosine_similarity": 0.9999999999983011,
+          "elements": 471936,
+          "shape": [
+            3687,
+            128
+          ],
+          "pass": true
+        },
+        "dsvt_block_1": {
+          "max_abs_diff": 6.759539246559143e-06,
+          "relative_l2_diff": 1.7435787640351919e-06,
+          "cosine_similarity": 0.9999999999984801,
+          "elements": 471936,
+          "shape": [
+            3687,
+            128
+          ],
+          "pass": true
+        },
+        "dsvt_block_2": {
+          "max_abs_diff": 6.109476089477539e-06,
+          "relative_l2_diff": 2.212831077486044e-06,
+          "cosine_similarity": 0.9999999999975517,
+          "elements": 471936,
+          "shape": [
+            3687,
+            128
+          ],
+          "pass": true
+        },
+        "dsvt_block_3": {
+          "max_abs_diff": 1.2636184692382812e-05,
+          "relative_l2_diff": 2.6564503059489653e-06,
+          "cosine_similarity": 0.9999999999964715,
+          "elements": 471936,
+          "shape": [
+            3687,
+            128
+          ],
+          "pass": true
+        },
+        "bev": {
+          "max_abs_diff": 1.2636184692382812e-05,
+          "relative_l2_diff": 2.6564739528112113e-06,
+          "cosine_similarity": 0.9999999999964717,
+          "elements": 16588800,
+          "shape": [
+            1,
+            128,
+            360,
+            360
+          ],
+          "pass": true
+        },
+        "backbone_2d": {
+          "max_abs_diff": 2.256035804748535e-05,
+          "relative_l2_diff": 2.7955118184763705e-06,
+          "cosine_similarity": 0.9999999999960923,
+          "elements": 12441600,
+          "shape": [
+            1,
+            384,
+            180,
+            180
+          ],
+          "pass": true
+        }
+      }
+    },
+    {
+      "file": "/home/hanelso/data/nuscenes/samples/LIDAR_TOP/n008-2018-08-01-15-16-36-0400__LIDAR_TOP__1533151604048025.pcd.bin",
+      "raw_point_count": 34688,
+      "range_filtered_point_count": 33530,
+      "pillar_coordinates": {
+        "official_count": 3774,
+        "ours_count": 3774,
+        "set_equal": true,
+        "official_only": 0,
+        "ours_only": 0
+      },
+      "stages": {
+        "vfe": {
+          "max_abs_diff": 2.9364600777626038e-06,
+          "relative_l2_diff": 1.167594746220857e-06,
+          "cosine_similarity": 0.9999999999993183,
+          "elements": 483072,
+          "shape": [
+            3774,
+            128
+          ],
+          "pass": true
+        },
+        "dsvt_block_0": {
+          "max_abs_diff": 7.092952728271484e-06,
+          "relative_l2_diff": 1.9938934201491065e-06,
+          "cosine_similarity": 0.9999999999980123,
+          "elements": 483072,
+          "shape": [
+            3774,
+            128
+          ],
+          "pass": true
+        },
+        "dsvt_block_1": {
+          "max_abs_diff": 6.459653377532959e-06,
+          "relative_l2_diff": 1.8588688135423581e-06,
+          "cosine_similarity": 0.9999999999982723,
+          "elements": 483072,
+          "shape": [
+            3774,
+            128
+          ],
+          "pass": true
+        },
+        "dsvt_block_2": {
+          "max_abs_diff": 5.908310413360596e-06,
+          "relative_l2_diff": 2.35675111071032e-06,
+          "cosine_similarity": 0.9999999999972233,
+          "elements": 483072,
+          "shape": [
+            3774,
+            128
+          ],
+          "pass": true
+        },
+        "dsvt_block_3": {
+          "max_abs_diff": 1.3835728168487549e-05,
+          "relative_l2_diff": 2.914879814852611e-06,
+          "cosine_similarity": 0.9999999999957516,
+          "elements": 483072,
+          "shape": [
+            3774,
+            128
+          ],
+          "pass": true
+        },
+        "bev": {
+          "max_abs_diff": 1.3835728168487549e-05,
+          "relative_l2_diff": 2.9148932298994623e-06,
+          "cosine_similarity": 0.9999999999957518,
+          "elements": 16588800,
+          "shape": [
+            1,
+            128,
+            360,
+            360
+          ],
+          "pass": true
+        },
+        "backbone_2d": {
+          "max_abs_diff": 4.271417856216431e-05,
+          "relative_l2_diff": 3.1773190585226985e-06,
+          "cosine_similarity": 0.9999999999949524,
+          "elements": 12441600,
+          "shape": [
+            1,
+            384,
+            180,
+            180
+          ],
+          "pass": true
+        }
+      }
+    }
+  ],
+  "aggregate": {
+    "vfe": {
+      "max_abs_diff": 2.9364600777626038e-06,
+      "max_relative_l2_diff": 1.167594746220857e-06,
+      "min_cosine_similarity": 0.9999999999993183,
+      "pass": true
+    },
+    "dsvt_block_0": {
+      "max_abs_diff": 7.092952728271484e-06,
+      "max_relative_l2_diff": 1.9938934201491065e-06,
+      "min_cosine_similarity": 0.9999999999980123,
+      "pass": true
+    },
+    "dsvt_block_1": {
+      "max_abs_diff": 6.759539246559143e-06,
+      "max_relative_l2_diff": 1.8588688135423581e-06,
+      "min_cosine_similarity": 0.9999999999982723,
+      "pass": true
+    },
+    "dsvt_block_2": {
+      "max_abs_diff": 6.109476089477539e-06,
+      "max_relative_l2_diff": 2.35675111071032e-06,
+      "min_cosine_similarity": 0.9999999999972233,
+      "pass": true
+    },
+    "dsvt_block_3": {
+      "max_abs_diff": 1.3835728168487549e-05,
+      "max_relative_l2_diff": 2.914879814852611e-06,
+      "min_cosine_similarity": 0.9999999999957516,
+      "pass": true
+    },
+    "bev": {
+      "max_abs_diff": 1.3835728168487549e-05,
+      "max_relative_l2_diff": 2.9148932298994623e-06,
+      "min_cosine_similarity": 0.9999999999957518,
+      "pass": true
+    },
+    "backbone_2d": {
+      "max_abs_diff": 4.271417856216431e-05,
+      "max_relative_l2_diff": 3.1773190585226985e-06,
+      "min_cosine_similarity": 0.9999999999949524,
+      "pass": true
+    }
+  },
+  "verdict": {
+    "result": "PASS",
+    "pillar_coordinate_sets_equal": true,
+    "first_mismatch": null
+  },
+  "report_path": "/home/hanelso/hanelso/bevfusion/tools/dsvt_pretrained/equiv_report.json"
+}
