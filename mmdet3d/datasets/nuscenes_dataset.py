@@ -463,6 +463,32 @@ class NuScenesDataset(Custom3DDataset):
         from nuscenes.eval.detection.evaluate import DetectionEval
 
         output_dir = osp.join(*osp.split(result_path)[:-1])
+
+        # nuscenes-devkit raises "Invalid box type: None" when the submission
+        # contains no boxes at all (e.g. a collapsed or barely-trained model).
+        # Return an all-zero summary instead of crashing the training run.
+        submission = mmcv.load(result_path)
+        if not any(submission.get("results", {}).values()):
+            from mmcv.utils import print_log
+
+            print_log(
+                "nuScenes evaluation skipped: submission contains no boxes",
+                logger=logger,
+            )
+            detail = dict()
+            for name in self.CLASSES:
+                for k in ("0.5", "1.0", "2.0", "4.0"):
+                    detail["object/{}_ap_dist_{}".format(name, k)] = 0.0
+                for k in self.ErrNameMapping:
+                    detail["object/{}_{}".format(name, k)] = 1.0
+            for k in self.ErrNameMapping.values():
+                detail["object/{}".format(k)] = 1.0
+            detail["object/nds"] = 0.0
+            detail["object/map"] = 0.0
+            # Keep the devkit-style summary lines that log parsers rely on.
+            print("mAP: 0.0000\nNDS: 0.0000", flush=True)
+            return detail
+
         nusc = NuScenes(version=self.version, dataroot=self.dataset_root, verbose=False)
         eval_set_map = {
             "v1.0-mini": "mini_val",
