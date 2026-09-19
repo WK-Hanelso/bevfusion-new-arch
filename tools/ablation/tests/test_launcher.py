@@ -193,6 +193,7 @@ time.sleep(0.5)
             "0,1,2,3,6,7",
             "--runs-root",
             str(tmp_path / "runs"),
+            "--skip-gate",
         ]
     )
     assert result == 1
@@ -206,3 +207,14 @@ time.sleep(0.5)
     assert metrics["wave"] == 4
     assert metrics["slot"] == 0
     assert metrics["status"] == "completed"
+
+
+def test_launch_is_refused_without_gate_marker(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(launch_waves, "git_revision", lambda: "no-such-revision")
+    monkeypatch.setattr(launch_waves, "capture_phase_environment", lambda path: None)
+    result = main(
+        ["--phase", "screening", "--ids", "B0", "--runs-root", str(tmp_path / "runs")]
+    )
+    assert result == 2
+    assert "[GATE] refusing to launch" in capsys.readouterr().err
+    assert not (tmp_path / "runs").exists()

@@ -43,6 +43,11 @@ def shell_command(command: Sequence[str], cuda_devices: Optional[str] = None) ->
     return rendered
 
 
+def gate_marker_path() -> Path:
+    """E2E gate marker written by tools/ablation/gate_e2e.sh for the current commit."""
+    return ROOT / "experiments" / "gate" / f"PASS_{git_revision()}.txt"
+
+
 def git_revision() -> str:
     try:
         revision = subprocess.run(
@@ -455,6 +460,11 @@ def make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--load-from-dsvt")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--skip-gate",
+        action="store_true",
+        help="bypass the E2E gate marker check (experiments/gate/PASS_<rev>.txt)",
+    )
     parser.add_argument("--resume", action="store_true")
     parser.add_argument(
         "--runs-root", type=Path, default=DEFAULT_RUNS_ROOT, help=argparse.SUPPRESS
@@ -647,6 +657,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     if args.dry_run:
         return 0
+    if not args.skip_gate:
+        marker = gate_marker_path()
+        if not marker.is_file():
+            print(
+                f"[GATE] refusing to launch: {marker} not found. Run "
+                "`bash tools/ablation/gate_e2e.sh <nuscenes_root>` for this commit "
+                "(train → checkpoint → full-val eval), or pass --skip-gate explicitly.",
+                file=sys.stderr,
+            )
+            return 2
+        print(f"[GATE] ok {marker}")
     capture_phase_environment(phase_dir)
     if not pending:
         return 0

@@ -146,3 +146,5 @@ deployment/**/*.ncu-rep
 # torch hipify generated files
 *_hip.*
 *.hip
+experiments/runs/
+experiments/gate/
