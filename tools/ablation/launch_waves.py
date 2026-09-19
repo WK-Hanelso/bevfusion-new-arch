@@ -276,6 +276,8 @@ def _start_job(
     log_handle = (run_dir / "train.log").open("w")
     child_env = os.environ.copy()
     child_env["CUDA_VISIBLE_DEVICES"] = devices
+    # Reduce allocator fragmentation when two jobs share a GPU.
+    child_env.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     process = None
     startup_error = None
     try:
@@ -460,7 +462,15 @@ def make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--phase", required=True, choices=("screening", "final"))
     parser.add_argument("--epochs", type=int)
     parser.add_argument("--gpus-per-job", type=int, choices=(2, 4))
-    parser.add_argument("--parallel", type=int, choices=(2, 4))
+    parser.add_argument("--parallel", type=int, choices=(2, 4, 6, 8))
+    parser.add_argument(
+        "--jobs-per-gpu",
+        type=int,
+        default=1,
+        choices=(1, 2),
+        help="co-locate this many jobs on each GPU group (2 = oversubscribe; "
+        "B200 183GB fits two batch-32 jobs, lidar-heavy jobs idle the GPU ~50%%)",
+    )
     parser.add_argument(
         "--gpus",
         default="0,1,2,3,4,5,6,7",
@@ -497,6 +507,7 @@ def resolve_args(parser: argparse.ArgumentParser, args: argparse.Namespace):
         all_groups = make_gpu_groups(args.gpus, args.gpus_per_job)
     except ValueError as error:
         parser.error(str(error))
+    all_groups = all_groups * args.jobs_per_gpu
     if args.parallel is None:
         args.parallel = len(all_groups)
     args.gpu_groups = all_groups[: args.parallel]

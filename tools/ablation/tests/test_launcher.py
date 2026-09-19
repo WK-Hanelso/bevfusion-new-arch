@@ -218,3 +218,18 @@ def test_launch_is_refused_without_gate_marker(tmp_path, capsys, monkeypatch):
     assert result == 2
     assert "[GATE] refusing to launch" in capsys.readouterr().err
     assert not (tmp_path / "runs").exists()
+
+
+def test_jobs_per_gpu_two_duplicates_groups_and_ports(tmp_path, capsys):
+    assert (
+        main(
+            ["--phase", "screening", "--jobs-per-gpu", "2", "--dry-run",
+             "--runs-root", str(tmp_path)]
+        )
+        == 0
+    )
+    output = capsys.readouterr().out
+    assert "parallel=8" in output
+    assert "slot=4 id=A2" not in output  # first 8 launches fill 8 slots in order
+    assert "wave=5 slot=4 id=A4" in output and "gpus=0,1" in output
+    assert "--master_port=29504" in output
