@@ -2,11 +2,11 @@
 # E2E 게이트 — 본 실행 전에 "학습 → 체크포인트 → full val 평가(mAP/NDS)"를 실제로 완주한다.
 # 통과 시 experiments/gate/PASS_<git rev>.txt 를 만들고, launch_waves.py는 이 마커가 없으면 실행을 거부한다.
 # 사용: bash tools/ablation/gate_e2e.sh <nuscenes_root> [ID ...]   (기본 ID: B0 A1 A2 FINAL — 4개를 GPU 그룹별로 동시에)
-#   env: GATE_GPUS(기본 0,1,2,3,4,5,6,7; 2장씩 잘라 ID를 병렬 배치)  GATE_TRAIN_SAMPLES(기본 512)  CONDA_ENV(기본 bevfusion-b200)
+#   env: GATE_GPUS(기본 0,1,2,3,4,5,6,7)  GATE_PER_JOB(그룹당 GPU 수, 기본 2; 1이면 8개 ID 동시)  GATE_TRAIN_SAMPLES(기본 512)  CONDA_ENV(기본 bevfusion-b200)
 set -uo pipefail
 ROOT="${1:?nuscenes_root}"; shift; IDS=("$@"); [ ${#IDS[@]} -eq 0 ] && IDS=(B0 A1 A2 FINAL)
 cd "$(dirname "$0")/../.."
-ENV="${CONDA_ENV:-bevfusion-b200}"; GPUS="${GATE_GPUS:-0,1,2,3,4,5,6,7}"; N="${GATE_TRAIN_SAMPLES:-512}"; PER_JOB=2
+ENV="${CONDA_ENV:-bevfusion-b200}"; GPUS="${GATE_GPUS:-0,1,2,3,4,5,6,7}"; N="${GATE_TRAIN_SAMPLES:-512}"; PER_JOB="${GATE_PER_JOB:-2}"
 REV="$(git rev-parse HEAD)"; GATE=experiments/gate; MINI="$GATE/mini_nuscenes"
 NPROC=$(echo "$GPUS" | tr ',' '\n' | wc -l)
 echo "== gate start $(date)  rev=${REV:0:8} ids=${IDS[*]} gpus=$GPUS train_samples=$N"

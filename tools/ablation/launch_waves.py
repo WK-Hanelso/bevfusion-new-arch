@@ -521,7 +521,7 @@ def make_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--phase", required=True, choices=("screening", "final"))
     parser.add_argument("--epochs", type=int)
-    parser.add_argument("--gpus-per-job", type=int, choices=(2, 4))
+    parser.add_argument("--gpus-per-job", type=int, choices=(1, 2, 4))
     parser.add_argument("--parallel", type=int, choices=(2, 4, 6, 8))
     parser.add_argument(
         "--jobs-per-gpu",
