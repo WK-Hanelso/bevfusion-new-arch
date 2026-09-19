@@ -68,6 +68,10 @@ def normalize_dataroot(value: str) -> str:
     return value if value.endswith(os.sep) else value + os.sep
 
 
+GLOBAL_BATCH = 32  # original BEVFusion: 8 GPU x 4
+WORKERS_PER_GPU = 8
+
+
 def build_command(
     experiment: Experiment,
     run_dir: Path,
@@ -104,6 +108,13 @@ def build_command(
         "True",
         "--checkpoint_config.out_dir",
         str(run_dir / "checkpoints"),
+        # Keep the original BEVFusion recipe: global batch 32 with the config's
+        # lr (1e-4, cyclic x10). Batch 8 with the same lr diverged on B200
+        # (2026-09-19: loss 4.3 -> 8.4 as lr rose to 4e-4, mAP 0 after epoch 1).
+        "--data.samples_per_gpu",
+        str(GLOBAL_BATCH // gpus_per_job),
+        "--data.workers_per_gpu",
+        str(WORKERS_PER_GPU),
     ]
     if experiment.uses_dsvt and load_from_dsvt:
         command.extend(["--load_from", load_from_dsvt])

@@ -2,11 +2,11 @@
 # E2E 게이트 — 본 실행 전에 "학습 → 체크포인트 → full val 평가(mAP/NDS)"를 실제로 완주한다.
 # 통과 시 experiments/gate/PASS_<git rev>.txt 를 만들고, launch_waves.py는 이 마커가 없으면 실행을 거부한다.
 # 사용: bash tools/ablation/gate_e2e.sh <nuscenes_root> [ID ...]   (기본 ID: B0 FINAL)
-#   env: GATE_GPUS(기본 0,1)  GATE_TRAIN_SAMPLES(기본 256)  CONDA_ENV(기본 bevfusion-b200)
+#   env: GATE_GPUS(기본 0,1)  GATE_TRAIN_SAMPLES(기본 512)  CONDA_ENV(기본 bevfusion-b200)
 set -uo pipefail
 ROOT="${1:?nuscenes_root}"; shift; IDS=("$@"); [ ${#IDS[@]} -eq 0 ] && IDS=(B0 FINAL)
 cd "$(dirname "$0")/../.."
-ENV="${CONDA_ENV:-bevfusion-b200}"; GPUS="${GATE_GPUS:-0,1}"; N="${GATE_TRAIN_SAMPLES:-256}"
+ENV="${CONDA_ENV:-bevfusion-b200}"; GPUS="${GATE_GPUS:-0,1}"; N="${GATE_TRAIN_SAMPLES:-512}"
 REV="$(git rev-parse HEAD)"; GATE=experiments/gate; MINI="$GATE/mini_nuscenes"
 NPROC=$(echo "$GPUS" | tr ',' '\n' | wc -l)
 echo "== gate start $(date)  rev=${REV:0:8} ids=${IDS[*]} gpus=$GPUS train_samples=$N"
@@ -39,7 +39,8 @@ from experiments import BY_ID; sys.exit(0 if BY_ID['$ID'].uses_dsvt else 1)"; th
     EXTRA=(--load_from pretrained/dsvt_nuscenes_official_lidar.pth); fi
   CUDA_VISIBLE_DEVICES="$GPUS" conda run -n "$ENV" --no-capture-output torchrun --master_port=29650 --nproc_per_node="$NPROC" \
     tools/train_torchrun.py "$CFG" --run-dir "$RUN" --max_epochs 1 --dataset_root "$MINI/" --seed 0 --fp16 None \
-    --find_unused_parameters True --checkpoint_config.out_dir "$RUN/checkpoints" "${EXTRA[@]}" > "$RUN/train.log" 2>&1
+    --find_unused_parameters True --checkpoint_config.out_dir "$RUN/checkpoints" \
+    --data.samples_per_gpu $((32 / NPROC)) --data.workers_per_gpu 8 "${EXTRA[@]}" > "$RUN/train.log" 2>&1
   RC=$?
   CKPT=$(find "$RUN/checkpoints" -name "epoch_1.pth" 2>/dev/null | head -1)
   MAP=$(grep -oE "mAP: [0-9.]+" "$RUN/train.log" | tail -1); NDS=$(grep -oE "NDS: [0-9.]+" "$RUN/train.log" | tail -1)
