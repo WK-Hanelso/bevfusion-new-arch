@@ -265,10 +265,10 @@ class TransFusionHead(nn.Module):
                 2,
             ] = F.max_pool2d(heatmap[:, 2], kernel_size=1, stride=1, padding=0)
         heatmap = heatmap * (heatmap == local_max)
-        heatmap = heatmap.view(batch_size, heatmap.shape[1], -1)
+        heatmap = heatmap.reshape(batch_size, heatmap.shape[1], -1)
 
         # top #num_proposals among all classes
-        top_proposals = heatmap.view(batch_size, -1).argsort(dim=-1, descending=True)[
+        top_proposals = heatmap.reshape(batch_size, -1).argsort(dim=-1, descending=True)[
             ..., : self.num_proposals
         ]
         top_proposals_class = top_proposals // heatmap.shape[-1]

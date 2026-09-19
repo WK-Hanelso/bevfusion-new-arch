@@ -95,13 +95,41 @@ def _patch_mmcv_get_stream() -> None:
     mmcv_functions._get_stream = get_stream
 
 
+def _patch_mmcv_ddp_forward() -> None:
+    """mmcv 1.7 ``MMDistributedDataParallel._run_ddp_forward`` reads
+    ``self._use_replicated_tensor_module``, which torch >= 2.1 removed.  Only the
+    evaluation path (``model(...)`` -> ``DDP.forward``) hits it; ``train_step``
+    does not.  Re-implement it without the removed attribute, keeping mmcv's
+    ``to_kwargs`` so DataContainer inputs are still scattered.
+    """
+
+    try:
+        from mmcv.parallel.distributed import MMDistributedDataParallel
+    except ImportError:
+        return
+    if getattr(MMDistributedDataParallel._run_ddp_forward, "_compat_patched", False):
+        return
+
+    def _run_ddp_forward(self, *inputs, **kwargs):
+        if self.device_ids:
+            inputs, kwargs = self.to_kwargs(inputs, kwargs, self.device_ids[0])
+            return self.module(*inputs[0], **kwargs[0])
+        return self.module(*inputs, **kwargs)
+
+    _run_ddp_forward._compat_patched = True
+    MMDistributedDataParallel._run_ddp_forward = _run_ddp_forward
+
+
 def main() -> None:
     dist.init = _init_from_torchrun_env
     context.init = _init_from_torchrun_env
     _patch_yapf()
     _patch_mmcv_get_stream()
+    _patch_mmcv_ddp_forward()
 
-    entry = os.path.join(os.path.dirname(os.path.abspath(__file__)), "train.py")
+    # BEVFUSION_ENTRY=test.py reuses this shim for tools/test.py (evaluation only).
+    entry_name = os.environ.get("BEVFUSION_ENTRY", "train.py")
+    entry = os.path.join(os.path.dirname(os.path.abspath(__file__)), entry_name)
     sys.argv = [entry] + sys.argv[1:]
     runpy.run_path(entry, run_name="__main__")
 

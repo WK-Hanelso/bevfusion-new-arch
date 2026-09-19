@@ -72,6 +72,7 @@ def build_command(
     seed: int,
     master_port: int,
     load_from_dsvt: Optional[str],
+    resume_from: Optional[str] = None,
 ) -> List[str]:
     command = [
         "conda",
@@ -101,7 +102,26 @@ def build_command(
     ]
     if experiment.uses_dsvt and load_from_dsvt:
         command.extend(["--load_from", load_from_dsvt])
+    if resume_from:
+        command.extend(["--resume_from", resume_from])
     return command
+
+
+def find_latest_checkpoint(run_dir: Path) -> Optional[str]:
+    """Newest ``epoch_*.pth`` under ``run_dir/checkpoints`` (mmcv nests a
+    ``<basename(work_dir)>`` directory inside ``out_dir``), or None."""
+    root = run_dir / "checkpoints"
+    if not root.is_dir():
+        return None
+    candidates = [p for p in root.rglob("epoch_*.pth") if p.is_file()]
+    if not candidates:
+        return None
+
+    def epoch_number(path: Path) -> int:
+        match = re.search(r"epoch_(\d+)\.pth$", path.name)
+        return int(match.group(1)) if match else -1
+
+    return str(max(candidates, key=lambda p: (epoch_number(p), p.stat().st_mtime)))
 
 
 def _write_json(path: Path, value: dict) -> None:
@@ -233,6 +253,10 @@ def _start_job(
     }
     _write_json(run_dir / "metrics.json", metadata)
 
+    previous_log = run_dir / "train.log"
+    if previous_log.exists() and previous_log.stat().st_size > 0:
+        stamp = dt.datetime.now().strftime("%Y%m%dT%H%M%S")
+        previous_log.rename(run_dir / f"train.{stamp}.log")
     log_handle = (run_dir / "train.log").open("w")
     child_env = os.environ.copy()
     child_env["CUDA_VISIBLE_DEVICES"] = devices
@@ -485,6 +509,7 @@ def _planned_jobs(
             seed=args.seed,
             master_port=args.master_port + slot,
             load_from_dsvt=args.load_from_dsvt,
+            resume_from=find_latest_checkpoint(run_dir) if args.resume else None,
         )
         yield launch_number, slot, devices, experiment, command
 
@@ -519,6 +544,7 @@ def _run_pool(
             args.seed,
             args.master_port + slot,
             args.load_from_dsvt,
+            resume_from=find_latest_checkpoint(run_dir) if args.resume else None,
         )
         print(
             f"[START] slot={slot} gpus={devices} id={experiment.experiment_id} "
