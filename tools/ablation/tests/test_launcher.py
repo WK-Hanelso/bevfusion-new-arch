@@ -233,3 +233,13 @@ def test_jobs_per_gpu_two_duplicates_groups_and_ports(tmp_path, capsys):
     assert "slot=4 id=A2" not in output  # first 8 launches fill 8 slots in order
     assert "wave=5 slot=4 id=A4" in output and "gpus=0,1" in output
     assert "--master_port=29504" in output
+
+
+def test_failure_regex_ignores_eval_table_nan():
+    regex = launch_waves.FAILURE_RE
+    assert not regex.search("traffic_cone  0.136  1.061  0.450  nan  nan  nan")
+    assert not regex.search("object/barrier_vel_err: nan, object/nds: 0.0689")
+    assert regex.search("loss: nan, grad_norm: 12.0")
+    assert regex.search("loss/object/loss_bbox: inf")
+    assert regex.search("grad_norm: nan")
+    assert regex.search("RuntimeError: CUDA error: device-side assert triggered")

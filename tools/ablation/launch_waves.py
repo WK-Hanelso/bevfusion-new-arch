@@ -26,10 +26,15 @@ except ImportError:  # Direct execution from the repository root.
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_RUNS_ROOT = ROOT / "experiments/runs"
 CONDA_ENV = "bevfusion-b200"
+# NaN/Inf only count on *training loss* fields.  The nuScenes evaluation table
+# legitimately prints ``nan`` for undefined per-class errors (e.g. traffic_cone
+# orientation/velocity), which must not be treated as fatal (2026-09-19 incident:
+# A1/A2 were killed mid-evaluation by the previous broad pattern).
 FAILURE_RE = re.compile(
-    r"(?i)(?<![A-Za-z])(?:nan|inf)(?![A-Za-z])|CUDA error|"
-    r"CUDA out of memory|out of memory|CUBLAS_STATUS|CUDNN_STATUS"
+    r"(?i)(?:\bloss(?:/[\w./-]+)?|\bgrad_norm):\s*(?:nan|inf)\b|Loss is nan|"
+    r"CUDA error|CUDA out of memory|out of memory|CUBLAS_STATUS|CUDNN_STATUS"
 )
+PORT_WAIT_SECONDS = 90
 
 
 def utc_now() -> str:
@@ -281,6 +286,9 @@ def _start_job(
     process = None
     startup_error = None
     try:
+        for token in command:
+            if token.startswith("--master_port="):
+                _wait_for_port(int(token.split("=", 1)[1]))
         process = subprocess.Popen(
             command,
             cwd=str(ROOT),
@@ -288,6 +296,7 @@ def _start_job(
             stdout=log_handle,
             stderr=subprocess.STDOUT,
             text=True,
+            start_new_session=True,
         )
         (run_dir / "launcher.pid").write_text(f"{process.pid}\n")
     except OSError as error:
@@ -350,7 +359,58 @@ def _finish_job(job: RunningJob) -> bool:
         f"wall={wall_time:.1f}s",
         flush=True,
     )
+    if status == "failed":
+        # Surface the cause immediately (esp. for fast failures such as port clashes).
+        log_path = job.run_dir / "train.log"
+        if log_path.is_file():
+            tail = [
+                line.strip()
+                for line in log_path.read_text(errors="replace").splitlines()
+                if line.strip()
+            ][-3:]
+            for line in tail:
+                print(f"    | {line[:200]}", flush=True)
     return status == "completed"
+
+
+def _port_is_free(port: int) -> bool:
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind(("127.0.0.1", port))
+        except OSError:
+            return False
+    return True
+
+
+def _wait_for_port(port: int, timeout: float = PORT_WAIT_SECONDS) -> None:
+    """Block until the torchrun rendezvous port is bindable (a killed job's
+    workers may hold it for a few seconds)."""
+
+    deadline = time.monotonic() + timeout
+    while not _port_is_free(port):
+        if time.monotonic() > deadline:
+            print(f"[WARN] port {port} still busy after {timeout:.0f}s", flush=True)
+            return
+        time.sleep(1.0)
+
+
+def _signal_job(job: RunningJob, sig: int) -> None:
+    """Signal the whole process group (conda run -> torchrun -> workers)."""
+
+    if job.process is None:
+        return
+    import signal as _signal
+
+    try:
+        os.killpg(os.getpgid(job.process.pid), sig)
+    except (ProcessLookupError, PermissionError):
+        if sig == _signal.SIGKILL:
+            job.process.kill()
+        else:
+            job.process.terminate()
 
 
 def _scan_new_log(job: RunningJob, final: bool = False) -> List[str]:
@@ -388,7 +448,7 @@ def _request_fatal_stop(job: RunningJob, failures: Sequence[str]) -> None:
         flush=True,
     )
     if job.process is not None:
-        job.process.terminate()
+        _signal_job(job, 15)
     job.stop_attempts = 1
     job.next_stop_check = time.monotonic() + 2.0
 
@@ -404,11 +464,11 @@ def _retry_fatal_stop(job: RunningJob, now: float) -> None:
     ):
         return
     if job.stop_attempts < 5:
-        job.process.terminate()
+        _signal_job(job, 15)
         job.stop_attempts += 1
         job.next_stop_check = now + 2.0
     else:
-        job.process.kill()
+        _signal_job(job, 9)
 
 
 def _is_completed(run_dir: Path) -> bool:
