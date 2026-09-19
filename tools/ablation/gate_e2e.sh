@@ -33,10 +33,10 @@ from experiments import BY_ID; print(BY_ID['$ID'].config_path)")
   RUN="$GATE/run_${ID}"; rm -rf "$RUN"; mkdir -p "$RUN"
   echo "== 2) train 1 epoch + eval: $ID ($CFG) $(date)"
   EXTRA=()
-  if conda run -n "$ENV" --no-capture-output python -c "
+  USES_DSVT=$(conda run -n "$ENV" --no-capture-output python -c "
 import sys; sys.path.insert(0,'tools/ablation')
-from experiments import BY_ID; sys.exit(0 if BY_ID['$ID'].uses_dsvt else 1)"; then
-    EXTRA=(--load_from pretrained/dsvt_nuscenes_official_lidar.pth); fi
+from experiments import BY_ID; print('yes' if BY_ID['$ID'].uses_dsvt else 'no')")
+  [ "$USES_DSVT" = "yes" ] && EXTRA=(--load_from pretrained/dsvt_nuscenes_official_lidar.pth)
   CUDA_VISIBLE_DEVICES="$GPUS" conda run -n "$ENV" --no-capture-output torchrun --master_port=29650 --nproc_per_node="$NPROC" \
     tools/train_torchrun.py "$CFG" --run-dir "$RUN" --max_epochs 1 --dataset_root "$MINI/" --seed 0 --fp16 None \
     --find_unused_parameters True --checkpoint_config.out_dir "$RUN/checkpoints" \
