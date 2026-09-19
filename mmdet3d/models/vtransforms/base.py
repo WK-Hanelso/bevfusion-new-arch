@@ -22,6 +22,8 @@ def gen_dx_bx(xbound, ybound, zbound):
 
 
 class BaseTransform(nn.Module):
+    bev_layout = "xy"
+
     def __init__(
         self,
         in_channels: int,
@@ -359,4 +361,3 @@ class BaseDepthTransform(BaseTransform):
             return x, depth 
         else:
             return x
-

@@ -184,6 +184,8 @@ class PillarFeatureNet(nn.Module):
 
 @BACKBONES.register_module()
 class PointPillarsScatter(nn.Module):
+    bev_layout = "xy"
+
     def __init__(self, in_channels=64, output_shape=(512, 512), **kwargs):
         """
         Point Pillar's Scatter.
@@ -242,6 +244,8 @@ class PointPillarsScatter(nn.Module):
 
 @BACKBONES.register_module()
 class PointPillarsEncoder(nn.Module):
+    bev_layout = "xy"
+
     def __init__(
         self,
         pts_voxel_encoder: Dict[str, Any],

@@ -679,6 +679,8 @@ class DSVTBEVResNeck(nn.Module):
 class DSVTLidarEncoder(nn.Module):
     """Raw nuScenes points to the fixed fusion-ready LiDAR BEV interface."""
 
+    bev_layout = "yx"
+
     def __init__(
         self,
         in_channels: int = 5,

@@ -35,6 +35,8 @@ def clip_sigmoid(x, eps=1e-4):
 
 @HEADS.register_module()
 class TransFusionHead(nn.Module):
+    bev_layout = "xy"
+
     def __init__(
         self,
         num_proposals=128,
@@ -67,10 +69,15 @@ class TransFusionHead(nn.Module):
         train_cfg=None,
         test_cfg=None,
         bbox_coder=None,
+        bev_layout="xy",
     ):
         super(TransFusionHead, self).__init__()
 
         self.fp16_enabled = False
+
+        if bev_layout not in ("xy", "yx"):
+            raise ValueError(f"bev_layout must be 'xy' or 'yx', got {bev_layout!r}")
+        self.bev_layout = bev_layout
 
         self.num_classes = num_classes
         self.num_proposals = num_proposals
@@ -171,6 +178,14 @@ class TransFusionHead(nn.Module):
         self.img_feat_collapsed_pos = None
 
     def create_2D_grid(self, x_size, y_size):
+        if self.bev_layout == "yx":
+            y, x = torch.meshgrid(
+                torch.arange(y_size, dtype=torch.float32),
+                torch.arange(x_size, dtype=torch.float32),
+                indexing="ij",
+            )
+            return torch.stack((x + 0.5, y + 0.5), dim=-1).reshape(1, -1, 2)
+
         meshgrid = [[0, x_size - 1, x_size], [0, y_size - 1, y_size]]
         # NOTE: modified
         batch_x, batch_y = torch.meshgrid(
@@ -181,6 +196,41 @@ class TransFusionHead(nn.Module):
         coord_base = torch.cat([batch_x[None], batch_y[None]], dim=0)[None]
         coord_base = coord_base.view(1, 2, -1).permute(0, 2, 1)
         return coord_base
+
+    def _dense_heatmap_target(self, gt_bboxes_3d, gt_labels_3d, device):
+        """Draw the dense target in this head's declared spatial layout."""
+        boxes = torch.cat(
+            [gt_bboxes_3d.gravity_center, gt_bboxes_3d.tensor[:, 3:]], dim=1
+        ).to(device)
+        grid_size = torch.tensor(self.train_cfg["grid_size"])
+        pc_range = torch.tensor(self.train_cfg["point_cloud_range"])
+        voxel_size = torch.tensor(self.train_cfg["voxel_size"])
+        out_size_factor = self.train_cfg["out_size_factor"]
+        feature_map_size = grid_size[:2] // out_size_factor
+        if self.bev_layout == "yx":
+            spatial_shape = (feature_map_size[1], feature_map_size[0])
+        else:
+            spatial_shape = (feature_map_size[0], feature_map_size[1])
+        heatmap = boxes.new_zeros(self.num_classes, *spatial_shape)
+
+        for idx in range(len(boxes)):
+            width = boxes[idx][3] / voxel_size[0] / out_size_factor
+            length = boxes[idx][4] / voxel_size[1] / out_size_factor
+            if width <= 0 or length <= 0:
+                continue
+            radius = gaussian_radius(
+                (length, width), min_overlap=self.train_cfg["gaussian_overlap"]
+            )
+            radius = max(self.train_cfg["min_radius"], int(radius))
+            coor_x = (boxes[idx][0] - pc_range[0]) / voxel_size[0] / out_size_factor
+            coor_y = (boxes[idx][1] - pc_range[1]) / voxel_size[1] / out_size_factor
+            center = torch.tensor(
+                [coor_x, coor_y], dtype=torch.float32, device=device
+            ).to(torch.int32)
+            if self.bev_layout == "xy":
+                center = center[[1, 0]]
+            draw_heatmap_gaussian(heatmap[gt_labels_3d[idx]], center, radius)
+        return heatmap
 
     def init_weights(self):
         # initialize transformer
@@ -524,54 +574,9 @@ class TransFusionHead(nn.Module):
         if len(neg_inds) > 0:
             label_weights[neg_inds] = 1.0
 
-        # # compute dense heatmap targets
-        device = labels.device
-        gt_bboxes_3d = torch.cat(
-            [gt_bboxes_3d.gravity_center, gt_bboxes_3d.tensor[:, 3:]], dim=1
-        ).to(device)
-        grid_size = torch.tensor(self.train_cfg["grid_size"])
-        pc_range = torch.tensor(self.train_cfg["point_cloud_range"])
-        voxel_size = torch.tensor(self.train_cfg["voxel_size"])
-        feature_map_size = (
-            grid_size[:2] // self.train_cfg["out_size_factor"]
-        )  # [x_len, y_len]
-        heatmap = gt_bboxes_3d.new_zeros(
-            self.num_classes, feature_map_size[1], feature_map_size[0]
+        heatmap = self._dense_heatmap_target(
+            gt_bboxes_3d, gt_labels_3d, labels.device
         )
-        for idx in range(len(gt_bboxes_3d)):
-            width = gt_bboxes_3d[idx][3]
-            length = gt_bboxes_3d[idx][4]
-            width = width / voxel_size[0] / self.train_cfg["out_size_factor"]
-            length = length / voxel_size[1] / self.train_cfg["out_size_factor"]
-            if width > 0 and length > 0:
-                radius = gaussian_radius(
-                    (length, width), min_overlap=self.train_cfg["gaussian_overlap"]
-                )
-                radius = max(self.train_cfg["min_radius"], int(radius))
-                x, y = gt_bboxes_3d[idx][0], gt_bboxes_3d[idx][1]
-
-                coor_x = (
-                    (x - pc_range[0])
-                    / voxel_size[0]
-                    / self.train_cfg["out_size_factor"]
-                )
-                coor_y = (
-                    (y - pc_range[1])
-                    / voxel_size[1]
-                    / self.train_cfg["out_size_factor"]
-                )
-
-                center = torch.tensor(
-                    [coor_x, coor_y], dtype=torch.float32, device=device
-                )
-                center_int = center.to(torch.int32)
-
-                # original
-                # draw_heatmap_gaussian(heatmap[gt_labels_3d[idx]], center_int, radius)
-                # NOTE: fix
-                draw_heatmap_gaussian(
-                    heatmap[gt_labels_3d[idx]], center_int[[1, 0]], radius
-                )
 
         mean_iou = ious[pos_inds].sum() / max(len(pos_inds), 1)
         return (

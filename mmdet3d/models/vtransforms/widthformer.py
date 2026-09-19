@@ -119,6 +119,8 @@ class _HorizontalRefiner(nn.Module):
 class WidthFormerTransform(nn.Module):
     """Generate canonical ``[B, C, Y, X]`` BEV features without BEV pooling."""
 
+    bev_layout = "yx"
+
     def __init__(
         self,
         in_channels: int,

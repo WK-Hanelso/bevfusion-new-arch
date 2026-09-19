@@ -34,6 +34,8 @@ class SparseEncoder(nn.Module):
             overrides ``BEVFUSION_SPCONV``; the default remains ``legacy``.
     """
 
+    bev_layout = "xy"
+
     def __init__(
         self,
         in_channels,

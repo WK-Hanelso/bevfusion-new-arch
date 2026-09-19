@@ -9,6 +9,7 @@ from mmdet3d.models import FUSIONMODELS
 from mmdet3d.models.builder import build_backbone
 
 from .bevfusion import BEVFusion
+from .bev_layout import canonicalize_bev, inject_head_bev_layout
 from .dispatch import select_fuser_call, select_head_call
 
 
@@ -23,6 +24,17 @@ class ModularBEVFusion(BEVFusion):
 
     def __init__(self, encoders, *args, **kwargs):
         encoders = copy.deepcopy(encoders)
+        args = list(args)
+        if "heads" in kwargs:
+            heads = copy.deepcopy(kwargs["heads"])
+            kwargs["heads"] = heads
+        elif len(args) >= 3:
+            heads = copy.deepcopy(args[2])
+            args[2] = heads
+        else:
+            raise TypeError("ModularBEVFusion requires a heads configuration")
+        inject_head_bev_layout(heads)
+
         lidar_config = encoders.get("lidar")
         self._raw_lidar_encoder = bool(
             lidar_config is not None and lidar_config.get("type") is not None
@@ -35,7 +47,7 @@ class ModularBEVFusion(BEVFusion):
             lidar_config.pop("backbone", None)
             lidar_config.pop("voxelize_reduce", None)
 
-        super().__init__(encoders=encoders, *args, **kwargs)
+        super().__init__(encoders, *args, **kwargs)
 
         if self._raw_lidar_encoder:
             self.encoders["lidar"] = nn.ModuleDict(
@@ -95,11 +107,21 @@ class ModularBEVFusion(BEVFusion):
                     )
                     if self.use_depth_loss:
                         feature, auxiliary_losses["depth"] = feature[0], feature[-1]
+                    feature = canonicalize_bev(
+                        feature,
+                        self.encoders["camera"]["vtransform"],
+                        "camera vtransform",
+                    )
                 sensor_features["camera"] = feature
             elif sensor == "lidar":
                 if points is None:
                     raise ValueError("a configured LiDAR encoder requires points")
-                sensor_features["lidar"] = self.extract_features(points, sensor)
+                feature = self.extract_features(points, sensor)
+                sensor_features["lidar"] = canonicalize_bev(
+                    feature,
+                    self.encoders["lidar"]["backbone"],
+                    "LiDAR encoder",
+                )
             else:
                 raise ValueError(f"unsupported sensor: {sensor}")
 
