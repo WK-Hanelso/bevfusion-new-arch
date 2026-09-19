@@ -17,8 +17,12 @@ class Experiment:
     experiment_id: str
     bits: str
 
+    config_override: str = ""  # stage experiments point at a hand-written config
+
     @property
     def config_name(self) -> str:
+        if self.config_override:
+            return self.config_override
         dsvt, widthformer, gfusion, dal = self.bits
         return f"dsvt{dsvt}_wf{widthformer}_gf{gfusion}_dal{dal}.yaml"
 
@@ -52,10 +56,20 @@ EXPERIMENTS: Tuple[Experiment, ...] = (
     Experiment("FINAL", "1111"),
 )
 
-BY_ID = MappingProxyType({item.experiment_id: item for item in EXPERIMENTS})
+# Stage experiments (BEVFusion-style staged training).  Not part of the 16-way
+# matrix: S1 = LiDAR-only DSVT + TransFusion head (init from the official DSVT
+# backbone) whose checkpoint initialises the DSVT fusion arms, exactly as
+# BEVFusion initialises its fusion model from lidar-only.pth.
+STAGE_EXPERIMENTS: Tuple[Experiment, ...] = (
+    Experiment("S1", "1---", config_override="s1_dsvt_lidar.yaml"),
+)
+
+BY_ID = MappingProxyType(
+    {item.experiment_id: item for item in EXPERIMENTS + STAGE_EXPERIMENTS}
+)
 BY_BITS = MappingProxyType({item.bits: item for item in EXPERIMENTS})
 
-if len(BY_ID) != 16 or len(BY_BITS) != 16:
+if len(BY_ID) != 16 + len(STAGE_EXPERIMENTS) or len(BY_BITS) != 16:
     raise RuntimeError("ablation experiment IDs and bit patterns must be unique")
 
 

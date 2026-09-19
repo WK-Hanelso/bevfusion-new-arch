@@ -9,6 +9,7 @@ ABLATION_TOOLS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ABLATION_TOOLS))
 
 from experiments import (  # noqa: E402
+    STAGE_EXPERIMENTS,
     BY_BITS,
     BY_ID,
     EXPERIMENTS,
@@ -19,7 +20,7 @@ from launch_waves import build_command, main, make_gpu_groups  # noqa: E402
 
 
 def test_registry_is_bijective_and_keeps_legacy_aliases():
-    assert len(EXPERIMENTS) == len(BY_ID) == len(BY_BITS) == 16
+    assert len(EXPERIMENTS) == len(BY_BITS) == 16 and len(BY_ID) == 16 + len(STAGE_EXPERIMENTS)
     assert BY_ID["B0"].bits == "0000"
     assert BY_ID["FINAL"].bits == "1111"
     assert BY_ID["A3"].bits == "0001"
