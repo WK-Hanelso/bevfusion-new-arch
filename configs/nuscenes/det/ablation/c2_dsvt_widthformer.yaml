@@ -6,6 +6,11 @@ voxel_size:
 - 0.3
 - 0.3
 - 8.0
+optimizer:
+  paramwise_cfg:
+    custom_keys:
+      encoders.lidar.backbone:
+        lr_mult: 0.1
 model:
   encoders:
     lidar:

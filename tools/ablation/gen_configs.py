@@ -111,6 +111,16 @@ def _leaf_config(lidar, vtransform, fuser, head):
 
     if lidar == "dsvt":
         encoders["lidar"] = copy.deepcopy(LIDAR_BLOCKS[lidar])
+        # Pretrained DSVT fine-tuning: the dense-heatmap head starts at prior
+        # 0.5 (TransFusion default), whose huge early gradients wreck a
+        # pretrained transformer at the full cyclic lr (B200 2026-09-19:
+        # A1/C1/P2 collapsed to background, features exploded x300).
+        # Standard remedy: 0.1x lr for the pretrained backbone only.
+        config["optimizer"] = {
+            "paramwise_cfg": {
+                "custom_keys": {"encoders.lidar.backbone": {"lr_mult": 0.1}}
+            }
+        }
     if vtransform == "widthformer":
         encoders.setdefault("camera", {})["vtransform"] = copy.deepcopy(
             VTRANSFORM_BLOCKS[vtransform]
