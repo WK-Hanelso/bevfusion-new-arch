@@ -40,7 +40,8 @@ while kill -0 "$PIPE_PID" 2>/dev/null; do
   NOW=$(date +%s); [ $((NOW - LAST)) -lt 60 ] && continue; LAST=$NOW
   echo; echo "---- [$(elapsed) 경과] $(date +%H:%M:%S) ----"
   grep -E "^== |PASS |FAIL |^\[(GATE|START|COMPLETED|FAILED|STOP|SKIP|WARN)\]|PIPELINE_EXIT" "$RUNLOG" | tail -12 | cut -c1-140
-  if [ -d experiments/runs/screening ]; then
+  # 게이트가 끝나기 전에는(런처 [START] 없음) 게이트 진행을, 그 뒤에는 run 진행을 보여준다.
+  if grep -q "^\[START\]" "$RUNLOG" 2>/dev/null && [ -d experiments/runs/screening ]; then
     for d in experiments/runs/screening/*/; do
       [ -d "$d" ] || continue
       id=$(basename "$d"); last=$(grep -hE 'Epoch \[' "$d/train.log" 2>/dev/null | tail -1 | sed 's/.*Epoch/Epoch/' | cut -c1-72)
@@ -51,7 +52,7 @@ while kill -0 "$PIPE_PID" 2>/dev/null; do
   elif [ -d experiments/gate ]; then
     for d in experiments/gate/run_*/; do
       [ -d "$d" ] || continue
-      id=$(basename "$d" | sed 's/run_//'); last=$(tail -c 400 "$d/train.log" 2>/dev/null | tr '\r' '\n' | grep -E 'Epoch \[|/6019|mAP: |NDS: |Error' | tail -1 | sed 's/.*Epoch/Epoch/' | cut -c1-80)
+      id=$(basename "$d" | sed 's/run_//'); last=$(tail -c 400 "$d/train.log" 2>/dev/null | tr '\r' '\n' | grep -E 'Epoch \[|/6019|mAP: |NDS: |Error|out of memory' | tail -1 | sed 's/.*Epoch/Epoch/' | cut -c1-80)
       printf '  gate %-6s %s\n' "$id" "$last"
     done
   fi
