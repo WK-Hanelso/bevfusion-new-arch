@@ -63,4 +63,4 @@ python -m unittest discover -s deployment/runtime/tests -v
 - **이전 Thor 대표값:** 34,688 synthetic points에서 병렬 P50 26.4405 ms / P99 27.3075 ms(100회). 모델 연산 및 GPU DAL decode 기준이며 입력 전처리·H2D·출력 D2H는 제외한다. [원본 근거](deployment/runtime/evidence/thor_20260903_cuda_overlap_analysis.json).
 - **별도 확정 사항:** 실제 5-LiDAR 통합 입력 분포, camera 구성, point feature 의미, pillar/set capacity, 실센서 입출력 연동, 학습 weight의 TensorRT 수치 일치·정확도·latency, 100만 point 설정의 성능·메모리. 100만 point는 고정값이 아니며 profile·capacity로 선택한다.
 
-기존 실측은 random-init engine과 synthetic 입력의 구조 진단이다. 현재 학습 weight와 제품 센서 조합의 정확도·35 ms 성능을 측정했다는 뜻은 아니다. 기존 실행 근거와 현재 패키징 상태를 같은 문서에서 관리하며 버전별 문서를 추가하지 않는다.
+기존 실측은 random-init engine과 synthetic 입력의 구조 진단이다. 현재 학습 weight와 제품 센서 조합의 정확도·35 ms 성능을 측정했다는 뜻은 아니다.
