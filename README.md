@@ -1,10 +1,10 @@
 # BEVFusion — new-arch
 
-팀의 기존 BEVFusion과 신규 DynamicBEVFusion을 같은 `configs/`, `mmdet3d/`, `tools/` 구조에서 선택해 학습하는 저장소다. 신규 모델은 WidthFormer camera branch, DSVT LiDAR branch, DepthGFusion과 DAL head로 구성된다.
+기존 BEVFusion baseline과 신규 DynamicBEVFusion을 같은 `configs/`, `mmdet3d/`, `tools/` 구조에서 선택해 학습하는 저장소다. 신규 모델은 WidthFormer camera branch, DSVT LiDAR branch, DepthGFusion과 DAL head로 구성된다.
 
 - 저장소: [WK-Hanelso/bevfusion-new-arch](https://github.com/WK-Hanelso/bevfusion-new-arch), branch: `main`
 - 정리 문서: [11. Transformer-based LiDAR-Camera Fusion Architecture and Jetson AGX Thor Deployment](https://app.notion.com/p/3d8f51a0d215819a8ae3e2b187245084)
-- 기존 Thor 실측을 inference 실행 구조의 검증 근거로 사용한다. 이번 정리는 재실측을 요구하지 않는다.
+- 기존 Thor 실측을 inference 실행 구조의 검증 근거로 사용한다.
 
 ## 모델 선택
 
@@ -12,7 +12,7 @@
 
 | 구성 | config (`configs/nuscenes/det/transfusion/secfpn/` 기준) | 모델 |
 |---|---|---|
-| 팀 기존 전방 3-camera | `camera+lidar/resnet50/convfuser.yaml` | `BEVFusion` |
+| 기존 전방 3-camera configuration | `camera+lidar/resnet50/convfuser.yaml` | `BEVFusion` |
 | 기존 모델의 nuScenes 6-camera | `camera+lidar/resnet50/convfuser_6cam.yaml` | `BEVFusion` |
 | 신규 nuScenes 6-camera | `lidar/dsvt_dgf_dal_widthformer_0p3.yaml` | `DynamicBEVFusion` |
 
