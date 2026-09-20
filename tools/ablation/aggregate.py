@@ -28,7 +28,11 @@ MEMORY_RE = re.compile(
     rf"\b(?:memory|peak[ _-]?(?:vram|memory))[\"']?\s*:\s*({FLOAT})\s*(GiB|GB|MiB|MB)?",
     re.IGNORECASE,
 )
-NAN_RE = re.compile(r"(?i)(?<![A-Za-z])(?:nan|inf)(?![A-Za-z])")
+# Only training-loss/grad fields count: nuScenes evaluation tables legitimately
+# print ``nan`` for undefined per-class errors (e.g. traffic_cone orientation).
+NAN_RE = re.compile(
+    r"(?i)(?:\bloss(?:/[\w./-]+)?|\bgrad_norm):\s*(?:nan|inf)\b|Loss is nan"
+)
 TIMESTAMP_RE = re.compile(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:,\d+)?)")
 
 METRIC_PATTERNS = {
@@ -178,17 +182,21 @@ def _read_metadata(run_dir: Path) -> dict:
 
 
 def _checkpoint_for_epoch(run_dir: Path, epoch: Optional[int]) -> str:
-    checkpoint_dir = run_dir / "checkpoints"
+    """Prefer the EvalHook best checkpoint (``best_object/nds_epoch_N.pth``),
+    then the plain ``epoch_N.pth``; search the whole run directory because
+    mmcv writes best checkpoints next to the work dir, not into ``out_dir``."""
+
     if epoch is not None:
-        exact = checkpoint_dir / f"epoch_{epoch}.pth"
-        if exact.exists():
-            return str(exact)
-        candidates = sorted(checkpoint_dir.rglob(f"*epoch_{epoch}.pth"))
+        candidates = sorted(run_dir.rglob(f"*epoch_{epoch}.pth"))
         if candidates:
             preferred = [path for path in candidates if "best" in str(path).lower()]
             return str((preferred or candidates)[0])
-    latest = checkpoint_dir / "latest.pth"
-    return str(latest) if latest.exists() else ""
+    best_any = sorted(run_dir.rglob("*_epoch_*.pth"))
+    best_any = [p for p in best_any if "best" in str(p).lower()] or sorted(run_dir.rglob("best_*.pth"))
+    if best_any:
+        return str(best_any[-1])
+    latest = sorted(run_dir.rglob("latest.pth"))
+    return str(latest[0]) if latest else ""
 
 
 CSV_FIELDS = [

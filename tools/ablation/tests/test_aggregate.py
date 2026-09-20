@@ -91,3 +91,23 @@ def test_collect_csv_markdown_and_forced_top_k(tmp_path, capsys):
     assert "git_commit,seed" in csv_text
     assert "ΔmAP" in markdown
     assert "Top-3 by NDS: B0, FINAL, A1" in markdown
+
+
+def test_nan_only_counts_training_fields():
+    import aggregate as agg
+    assert not agg.NAN_RE.search("traffic_cone  0.136  1.061  0.450  nan  nan  nan")
+    assert not agg.NAN_RE.search("object/barrier_vel_err: nan, object/nds: 0.0689")
+    assert agg.NAN_RE.search("loss: nan, grad_norm: 12.0")
+    assert agg.NAN_RE.search("loss/object/loss_bbox: inf")
+
+
+def test_best_checkpoint_is_found_anywhere_under_run_dir(tmp_path):
+    import aggregate as agg
+    run = tmp_path / "FINAL"
+    (run / "checkpoints" / "FINAL").mkdir(parents=True)
+    (run / "checkpoints" / "FINAL" / "epoch_5.pth").write_bytes(b"x")
+    (run / "best_object").mkdir()
+    (run / "best_object" / "nds_epoch_5.pth").write_bytes(b"x")
+    assert agg._checkpoint_for_epoch(run, 5).endswith("best_object/nds_epoch_5.pth")
+    # epoch 4 has no file of its own: fall back to the best checkpoint, not empty
+    assert agg._checkpoint_for_epoch(run, 4).endswith("best_object/nds_epoch_5.pth")
