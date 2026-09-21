@@ -1,0 +1,200 @@
+# a1_perf.yaml minus ObjectPaste — probe only.
+
+voxel_size:
+- 0.3
+- 0.3
+- 8.0
+model:
+  encoders:
+    lidar:
+      type: DSVTLidarEncoder
+      in_channels: 5
+      point_cloud_range: ${point_cloud_range}
+      voxel_size: ${voxel_size}
+      d_model: 128
+      set_size: 90
+      block_count: 4
+      window_shape:
+      - 30
+      - 30
+      - 1
+      out_channels: 256
+      official_layout: true
+      zero_feature_channels:
+      - 4
+    camera:
+      backbone:
+        type: ResNet
+        depth: 50
+        out_indices:
+        - 1
+        - 2
+        - 3
+        init_cfg:
+          type: Pretrained
+          checkpoint: https://download.pytorch.org/models/resnet50-0676ba61.pth
+      neck:
+        type: LSSFPN
+        in_indices:
+        - 2
+        - 1
+        in_channels:
+        - 2048
+        - 1024
+        out_channels: 256
+        scale_factor: 1
+  heads:
+    object:
+      train_cfg:
+        grid_size:
+        - 360
+        - 360
+        - 1
+        out_size_factor: 2
+      test_cfg:
+        grid_size:
+        - 360
+        - 360
+        - 1
+        out_size_factor: 2
+      bbox_coder:
+        out_size_factor: 2
+lidar_sweeps: 9
+train_pipeline:
+- type: LoadMultiViewImageFromFiles
+  to_float32: true
+- type: LoadPointsFromFile
+  coord_type: LIDAR
+  load_dim: ${load_dim}
+  use_dim: ${use_dim}
+  reduce_beams: ${reduce_beams}
+  load_augmented: ${load_augmented}
+- type: LoadPointsFromMultiSweeps
+  sweeps_num: ${lidar_sweeps}
+  load_dim: ${load_dim}
+  use_dim: ${use_dim}
+  reduce_beams: ${reduce_beams}
+  pad_empty_sweeps: true
+  remove_close: true
+  load_augmented: ${load_augmented}
+- type: LoadAnnotations3D
+  with_bbox_3d: true
+  with_label_3d: true
+  with_attr_label: false
+- type: ImageAug3D
+  final_dim: ${image_size}
+  resize_lim: ${augment2d.resize[0]}
+  bot_pct_lim:
+  - 0.0
+  - 0.0
+  rot_lim: ${augment2d.rotate}
+  rand_flip: true
+  is_train: true
+- type: GlobalRotScaleTrans
+  resize_lim: ${augment3d.scale}
+  rot_lim: ${augment3d.rotate}
+  trans_lim: ${augment3d.translate}
+  is_train: true
+- type: RandomFlip3D
+- type: PointsRangeFilter
+  point_cloud_range: ${point_cloud_range}
+- type: ObjectRangeFilter
+  point_cloud_range: ${point_cloud_range}
+- type: ObjectNameFilter
+  classes: ${object_classes}
+- type: PointShuffle
+- type: ImageNormalize
+  mean:
+  - 0.485
+  - 0.456
+  - 0.406
+  std:
+  - 0.229
+  - 0.224
+  - 0.225
+- type: DefaultFormatBundle3D
+  classes: ${object_classes}
+- type: Collect3D
+  keys:
+  - img
+  - points
+  - gt_bboxes_3d
+  - gt_labels_3d
+  meta_keys:
+  - camera_intrinsics
+  - camera2ego
+  - lidar2ego
+  - lidar2camera
+  - camera2lidar
+  - lidar2image
+  - img_aug_matrix
+  - lidar_aug_matrix
+test_pipeline:
+- type: LoadMultiViewImageFromFiles
+  to_float32: true
+- type: LoadPointsFromFile
+  coord_type: LIDAR
+  load_dim: ${load_dim}
+  use_dim: ${use_dim}
+  reduce_beams: ${reduce_beams}
+  load_augmented: ${load_augmented}
+- type: LoadPointsFromMultiSweeps
+  sweeps_num: ${lidar_sweeps}
+  load_dim: ${load_dim}
+  use_dim: ${use_dim}
+  reduce_beams: ${reduce_beams}
+  pad_empty_sweeps: true
+  remove_close: true
+  load_augmented: ${load_augmented}
+- type: LoadAnnotations3D
+  with_bbox_3d: true
+  with_label_3d: true
+  with_attr_label: false
+- type: ImageAug3D
+  final_dim: ${image_size}
+  resize_lim: ${augment2d.resize[1]}
+  bot_pct_lim:
+  - 0.0
+  - 0.0
+  rot_lim:
+  - 0.0
+  - 0.0
+  rand_flip: false
+  is_train: false
+- type: GlobalRotScaleTrans
+  resize_lim:
+  - 1.0
+  - 1.0
+  rot_lim:
+  - 0.0
+  - 0.0
+  trans_lim: 0.0
+  is_train: false
+- type: PointsRangeFilter
+  point_cloud_range: ${point_cloud_range}
+- type: ImageNormalize
+  mean:
+  - 0.485
+  - 0.456
+  - 0.406
+  std:
+  - 0.229
+  - 0.224
+  - 0.225
+- type: DefaultFormatBundle3D
+  classes: ${object_classes}
+- type: Collect3D
+  keys:
+  - img
+  - points
+  - gt_bboxes_3d
+  - gt_labels_3d
+  meta_keys:
+  - camera_intrinsics
+  - camera2ego
+  - lidar2ego
+  - lidar2camera
+  - camera2lidar
+  - lidar2image
+  - img_aug_matrix
+  - lidar_aug_matrix

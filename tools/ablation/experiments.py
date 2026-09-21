@@ -64,6 +64,9 @@ STAGE_EXPERIMENTS: Tuple[Experiment, ...] = (
     Experiment("S1", "1---", config_override="s1_dsvt_lidar.yaml"),
     # FINAL trained "properly": 10 sweeps + GT-Aug (fade last epoch) + ResNet-50.
     Experiment("FINALP", "1111", config_override="final_perf.yaml"),
+    Experiment("B0P", "0000", config_override="b0_perf.yaml"),
+    Experiment("P2P", "1110", config_override="p2_perf.yaml"),
+    Experiment("A1P", "1000", config_override="a1_perf.yaml"),
 )
 
 BY_ID = MappingProxyType(

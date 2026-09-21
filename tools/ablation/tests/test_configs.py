@@ -76,7 +76,7 @@ def test_generated_leaf_set_is_complete():
     actual = {
         path.name for path in ABLATION_DIR.glob("*.yaml") if path.name != "default.yaml"
     }
-    actual = {name for name in actual if not name.startswith(('s1_', 'final_perf'))}  # stage configs are hand-written
+    actual = {name for name in actual if not (name.startswith('s1_') or name.endswith(('_perf.yaml', '_perf_noaug.yaml')))}  # stage configs are hand-written
     assert actual == set(LEAVES)
 
 
