@@ -62,6 +62,8 @@ EXPERIMENTS: Tuple[Experiment, ...] = (
 # BEVFusion initialises its fusion model from lidar-only.pth.
 STAGE_EXPERIMENTS: Tuple[Experiment, ...] = (
     Experiment("S1", "1---", config_override="s1_dsvt_lidar.yaml"),
+    # FINAL trained "properly": 10 sweeps + GT-Aug (fade last epoch) + ResNet-50.
+    Experiment("FINALP", "1111", config_override="final_perf.yaml"),
 )
 
 BY_ID = MappingProxyType(
