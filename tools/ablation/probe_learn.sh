@@ -45,7 +45,9 @@ done
 echo "== probe done $(date)"
 for n in "${NAMES[@]}"; do
   hm=$(grep -hE 'Epoch \[1\]\[1[0-9]{3}/' "$PR/$n/train.log" | head -1 | grep -oE "loss_heatmap: [0-9.]+" | grep -oE "[0-9.]+")
+  # short runs (< 1000 iters): judge on the last logged value instead
+  [ -z "$hm" ] && hm=$(grep -hE 'Epoch \[' "$PR/$n/train.log" | tail -1 | grep -oE "loss_heatmap: [0-9.]+" | grep -oE "[0-9.]+")
   last=$(grep -hE 'Epoch \[' "$PR/$n/train.log" | tail -1 | grep -oE "loss_heatmap: [0-9.]+|matched_ious: [0-9.]+" | tr '\n' ' ')
   verdict="FAIL"; [ -n "$hm" ] && awk -v a="$hm" -v b="$PASS_HM" 'BEGIN{exit !(a<b)}' && verdict="PASS"
-  echo "  $n: heatmap@iter1000=${hm:-n/a} last: $last -> $verdict (criterion < $PASS_HM)"
+  echo "  $n: heatmap@judge=${hm:-n/a} last: $last -> $verdict (criterion < $PASS_HM)"
 done
