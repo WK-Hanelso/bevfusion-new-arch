@@ -1,10 +1,21 @@
-# BEVFusion — new-arch
+# DynamicBEVFusion — Multimodal 3D Perception & TensorRT Deployment
 
-기존 BEVFusion baseline과 신규 DynamicBEVFusion을 같은 `configs/`, `mmdet3d/`, `tools/` 구조에서 선택해 학습하는 저장소다. 신규 모델은 WidthFormer camera branch, DSVT LiDAR branch, DepthGFusion과 DAL head로 구성된다.
+WidthFormer Camera branch, DSVT LiDAR branch, DepthGFusion, DAL head를 하나의 BEV 규약으로 결합하고, **학습 → 오류 분석 → ONNX → TensorRT → C++ Runtime**까지 연결하는 멀티모달 3D Perception 프로젝트입니다.
 
-- 저장소: [WK-Hanelso/bevfusion-new-arch](https://github.com/WK-Hanelso/bevfusion-new-arch), branch: `main`
-- 정리 문서: [11. Transformer-based LiDAR-Camera Fusion Architecture and Jetson AGX Thor Deployment](https://app.notion.com/p/3d8f51a0d215819a8ae3e2b187245084)
-- 기존 Thor 실측을 inference 실행 구조의 검증 근거로 사용한다.
+## At a glance
+
+| 항목 | 결과 / 범위 |
+|---|---|
+| Dataset | nuScenes v1.0-trainval |
+| Training | 8×A6000, FP32, single-sweep, 20 epochs |
+| Best result | **mAP 0.5281 / NDS 0.5132** at epoch 19 |
+| Architecture | WidthFormer + DSVT + DepthGFusion + DAL |
+| Deployment path | PTH → ONNX → TensorRT → C++ Runtime |
+| Runtime validation | A/B/C engine contract, CUDA plugins, bundle launcher tests |
+
+> **Latency boundary:** 기존 Thor P50 26.4405 ms / P99 27.3075 ms 수치는 random-init engine + synthetic input 기반의 실행 구조 검증값입니다. 현재 학습 weight의 제품 센서 조합 성능으로 해석하지 않습니다.
+
+---
 
 ## 모델 선택
 
