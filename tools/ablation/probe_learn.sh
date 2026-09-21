@@ -23,12 +23,13 @@ trap 'echo "== stop"; for n in "${NAMES[@]}"; do pkill -TERM -f "experiments/pro
 PORT=29850
 for spec in "${SPECS[@]}"; do
   IFS='|' read -r NAME GPU CFG EXTRA <<<"$spec"; NAMES+=("$NAME"); RUN="$PR/$NAME"; rm -rf "$RUN"; mkdir -p "$RUN"; PORT=$((PORT + 1))
-  echo "== [$NAME] gpu=$GPU cfg=$CFG extra='$EXTRA' port=$PORT"
+  NPROC=$(echo "$GPU" | tr ',' '\n' | wc -l); SPG=$((32 / NPROC)); ACC=(); if [ "$SPG" -gt 16 ]; then ACC=(--optimizer_config.type GradientCumulativeOptimizerHook --optimizer_config.cumulative_iters $((SPG / 16))); SPG=16; fi
+  echo "== [$NAME] gpus=$GPU nproc=$NPROC samples_per_gpu=$SPG cfg=$CFG extra='$EXTRA' port=$PORT"
   # shellcheck disable=SC2086
-  CUDA_VISIBLE_DEVICES="$GPU" conda run -n "$ENV" --no-capture-output torchrun --master_port="$PORT" --nproc_per_node=1 \
+  CUDA_VISIBLE_DEVICES="$GPU" conda run -n "$ENV" --no-capture-output torchrun --master_port="$PORT" --nproc_per_node="$NPROC" \
     tools/train_torchrun.py "$CFG" --run-dir "$RUN" --max_epochs 1 --dataset_root "$MINI/" --seed 0 --fp16 None \
     --find_unused_parameters True --checkpoint_config.out_dir "$RUN/checkpoints" --checkpoint_config.interval 99 --evaluation.interval 99 \
-    --data.samples_per_gpu 16 --data.workers_per_gpu 8 --optimizer_config.type GradientCumulativeOptimizerHook --optimizer_config.cumulative_iters 2 \
+    --data.samples_per_gpu "$SPG" --data.workers_per_gpu 8 "${ACC[@]}" \
     $EXTRA > "$RUN/train.log" 2>&1 &
 done
 T0=$(date +%s)
