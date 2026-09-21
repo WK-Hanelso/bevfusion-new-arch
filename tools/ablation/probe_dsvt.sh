@@ -12,6 +12,8 @@ ENV=bevfusion-b200; N="${PROBE_TRAIN_SAMPLES:-6000}"; CFG=configs/nuscenes/det/a
 PR=experiments/probe; MINI="$PR/mini_nuscenes"; mkdir -p "$MINI"
 for d in samples sweeps maps v1.0-trainval; do [ -e "$MINI/$d" ] || ln -s "$ROOT/$d" "$MINI/$d"; done
 [ -e "$MINI/nuscenes_infos_val.pkl" ] || ln -s "$ROOT/nuscenes_infos_val.pkl" "$MINI/nuscenes_infos_val.pkl"
+# GT-Aug (ObjectPaste) assets, when the dataset has them
+for f in nuscenes_dbinfos_train.pkl nuscenes_gt_database; do [ -e "$ROOT/$f" ] && [ ! -e "$MINI/$f" ] && ln -s "$ROOT/$f" "$MINI/$f"; done
 conda run -n "$ENV" --no-capture-output python - "$ROOT" "$MINI" "$N" <<'PY'
 import pickle, sys
 root, mini, n = sys.argv[1], sys.argv[2], int(sys.argv[3])
