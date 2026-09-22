@@ -13,9 +13,9 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence
 
 try:
-    from .experiments import BY_ID, EXPERIMENTS
+    from .experiments import BY_ID, EXPERIMENTS, STAGE_EXPERIMENTS
 except ImportError:  # Direct execution from the repository root.
-    from experiments import BY_ID, EXPERIMENTS
+    from experiments import BY_ID, EXPERIMENTS, STAGE_EXPERIMENTS
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -224,7 +224,7 @@ CSV_FIELDS = [
 
 def collect_rows(phase_dir: Path) -> List[dict]:
     rows = []
-    for experiment in EXPERIMENTS:
+    for experiment in EXPERIMENTS + STAGE_EXPERIMENTS:
         run_dir = phase_dir / experiment.experiment_id
         if not run_dir.is_dir():
             continue
@@ -284,7 +284,7 @@ def best_rows(rows: Iterable[dict], by: str) -> List[dict]:
         old = best.get(row["experiment_id"])
         if old is None or value > old[by]:
             best[row["experiment_id"]] = row
-    order = {item.experiment_id: index for index, item in enumerate(EXPERIMENTS)}
+    order = {item.experiment_id: index for index, item in enumerate(EXPERIMENTS + STAGE_EXPERIMENTS)}
     return sorted(best.values(), key=lambda row: order[row["experiment_id"]])
 
 
