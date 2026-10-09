@@ -1,5 +1,9 @@
 # DynamicBEVFusion — Multimodal 3D Perception & TensorRT Deployment
 
+![Project concept banner](assets/project-banner-20261009.jpg)
+
+<sub>Conceptual project illustration; not a measured output or an implementation diagram.</sub>
+
 WidthFormer Camera branch, DSVT LiDAR branch, DepthGFusion, DAL head를 하나의 BEV 규약으로 결합하고, **학습 → 오류 분석 → ONNX → TensorRT → C++ Runtime**까지 연결하는 멀티모달 3D Perception 프로젝트입니다.
 
 ## At a glance
